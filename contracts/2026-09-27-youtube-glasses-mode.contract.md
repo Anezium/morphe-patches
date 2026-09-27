@@ -250,3 +250,23 @@ The final test-only APK was installed at 2026-09-27 14:51:36; main YouTube staye
 at 2026-08-10 17:22:51. The Nexus preference remains off and unchanged by this
 continuation. Detailed checks and screenshots are in
 `E:/Tools/Rokid/tmp/morphe-rokid-prototype/evidence/visual-polish/acceptance.md`.
+
+# User-authorized continuation: player options
+
+On 2026-09-27 the user asked for playback speed, captions on/off and caption
+language. A sixth rail key, Options, opens a list under the video
+(`RokidSurface.OPTIONS`): Speed (0.5x to 2x through
+`VideoInformation.changePlaybackSpeed`), Subtitles on/off and Language. Back
+inside the list goes up one page, then closes it; the controller consumes that
+Back like the sections list. Rail keys are 68 px so six fit the 480 px width.
+
+Captions use YouTube's subtitles controller, located by its
+`setSubtitleTrack name:` log string. The patch adds `NativeCaptions` to that
+class (menu track list, shown track, preferred-track selection) and
+`NativeCaptionTrack` to the SubtitleTrack class. Selection uses the same
+`PREFERRED_TRACK` reason as the native menu, so the choice persists. The
+auto-translate entry is omitted.
+
+`:patches:test` passed with 76 Rokid tests, and a `-SkipDeploy` build applied
+"Rokid controls" with the new hooks present in the dex. Device verification is
+still pending because another session had the glasses. Commit `123b54b3`.
