@@ -16,6 +16,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.accessibility.AccessibilityEvent
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.SearchView
@@ -44,6 +45,14 @@ object RokidControlsController {
     private const val PILL_MS = 2_000L
 
     private val state = RokidControlsState()
+    private val sectionsState = RokidSectionsState()
+    private var sectionsView: RokidSectionsView? = null
+    private var currentSection = RokidSection.HOME
+    private var consumeBackUp = false
+    private var searchPending = false
+    private var searchVisible = false
+    private var searchAttempts = 0
+    private val checkSearch = Runnable { updateSearch() }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hideRailAfterIdle = Runnable {
         state.hideRail()
@@ -108,6 +117,12 @@ object RokidControlsController {
         pillUntil = 0L
         lastRefreshedSurface = null
         state.reset()
+        sectionsState.reset()
+        currentSection = RokidSection.HOME
+        consumeBackUp = false
+        searchPending = false
+        searchVisible = false
+        mainHandler.removeCallbacks(checkSearch)
         RokidKeyMapper.resetDebounce()
         unbindObservers()
     }
@@ -173,16 +188,18 @@ object RokidControlsController {
         val bypass = classifyBypass(activity)
         if (bypass != RokidKeyBypass.Reason.NONE) {
             consumeMatchingKeyUp = false
+            consumeBackUp = false
             logKey(event, bypass, surface, state.railIndex, "NONE", false)
             return false
         }
+        if (handleSectionsBack(activity, event, surface)) return true
         if (
             event.action == KeyEvent.ACTION_UP &&
             consumeMatchingKeyUp &&
             RokidKeyMapper.isDirectionOrSelect(event.keyCode)
         ) {
             consumeMatchingKeyUp = false
-            logKey(event, RokidKeyBypass.Reason.NONE, surface, state.railIndex, "CONSUME_UP", true)
+            logKey(event, RokidKeyBypass.Reason.NONE, surface, selectionIndex(surface), "CONSUME_UP", true)
             return true
         }
         val action = RokidKeyMapper.map(
@@ -205,11 +222,91 @@ object RokidControlsController {
             event,
             RokidKeyBypass.Reason.NONE,
             surface,
-            dispatch.railIndex,
+            selectionIndex(surface),
             dispatch.command.name,
             consumed,
         )
         return consumed
+    }
+
+    private fun selectionIndex(surface: RokidSurface): Int =
+        if (surface == RokidSurface.SECTIONS) sectionsState.index else state.railIndex
+
+    private fun handleSectionsBack(activity: Activity, event: KeyEvent, surface: RokidSurface): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_BACK) return false
+        if (consumeBackUp) {
+            if (event.action == KeyEvent.ACTION_UP) consumeBackUp = false
+            logKey(event, RokidKeyBypass.Reason.NONE, surface, sectionsState.index, "CONSUME_BACK", true)
+            return true
+        }
+        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0) return false
+        val command = when {
+            surface == RokidSurface.SECTIONS -> {
+                val exit = sectionsState.close()
+                if (exit) {
+                    dispatchActualBack(activity)
+                    // A minimized video can absorb native Back at the root.
+                    if (!activity.isFinishing) activity.finish()
+                }
+                "SECTIONS_CLOSE"
+            }
+            surface == RokidSurface.BROWSE && findResultsContainer(activity) != null -> {
+                sectionsState.open(RokidSectionNavigation.isRootFeed(), currentSection)
+                RokidCommand.SECTIONS_OPEN.name
+            }
+            else -> return false
+        }
+        consumeBackUp = true
+        refresh()
+        logKey(event, RokidKeyBypass.Reason.NONE, surface, sectionsState.index, command, true)
+        return true
+    }
+
+    private fun activateSection(activity: Activity): Boolean {
+        val section = sectionsState.selected
+        if (section == RokidSection.SEARCH) {
+            searchPending = true
+            searchAttempts = 0
+            exposeSearchChrome(activity, true)
+        }
+        if (RokidSectionNavigation.open(activity, section)) {
+            currentSection = section
+            sectionsState.close()
+            if (searchPending) mainHandler.postDelayed(checkSearch, 100L)
+        } else {
+            searchPending = false
+            exposeSearchChrome(activity, false)
+            Logger.printDebug { "Rokid section unavailable: $section" }
+        }
+        // Never activate the feed behind an open sections overlay on failure.
+        return true
+    }
+
+    private fun exposeSearchChrome(activity: Activity, visible: Boolean) {
+        chrome?.exempt = if (visible) {
+            listOf("appbar_layout", "toolbar_container", "toolbar")
+                .map { resolveViewId(activity, it) }.filter { it != 0 }.toSet()
+        } else emptySet()
+    }
+
+    private fun updateSearch() {
+        val activity = activityRef.get() ?: return
+        if (activity.isFinishing) return
+        val editor = listOf("search_edit_text", "search_query")
+            .mapNotNull { RokidSectionNavigation.find(activity, it) as? EditText }
+            .firstOrNull { it.isShown }
+        searchVisible = editor != null
+        if (searchPending && editor != null) {
+            editor.requestFocus()
+            val input = activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as? InputMethodManager
+            input?.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            searchPending = false
+        } else if (searchPending && ++searchAttempts >= 12) {
+            searchPending = false
+        }
+        exposeSearchChrome(activity, searchPending || searchVisible)
+        refresh()
+        if (searchPending || searchVisible) mainHandler.postDelayed(checkSearch, 250L)
     }
 
     private fun bindActivity(activity: Activity) {
@@ -221,6 +318,9 @@ object RokidControlsController {
     }
 
     private fun ensureOverlays(activity: Activity) {
+        if (sectionsView == null) {
+            sectionsView = RokidSectionsView(activity).also { it.layoutParams = fullLayoutParams() }
+        }
         if (ring == null) {
             ring = RokidFocusRingView(activity).also { it.layoutParams = fullLayoutParams() }
         }
@@ -234,7 +334,7 @@ object RokidControlsController {
 
     /** HUD bands stay above the player's black mask on every reattach. */
     private fun addOverlaysTo(contentRoot: ViewGroup) {
-        listOfNotNull(ring, rail, hud).forEach { view ->
+        listOfNotNull(ring, rail, sectionsView, hud).forEach { view ->
             val params = view.layoutParams ?: fullLayoutParams()
             (view.parent as? ViewGroup)?.removeView(view)
             contentRoot.addView(view, params)
@@ -242,7 +342,8 @@ object RokidControlsController {
     }
 
     private fun dropOverlays() {
-        val views = listOfNotNull(ring, hud, rail)
+        val views = listOfNotNull(ring, hud, rail, sectionsView)
+        sectionsView = null
         ring?.hide()
         ring = null
         hud = null
@@ -295,12 +396,19 @@ object RokidControlsController {
         return when {
             type == PlayerType.WATCH_WHILE_FULLSCREEN -> RokidSurface.FULLSCREEN
             type.isMaximizedOrFullscreen() -> RokidSurface.PLAYER
+            sectionsState.isOpen -> RokidSurface.SECTIONS
             else -> RokidSurface.BROWSE
         }
     }
 
     private fun refresh() {
         val surface = currentSurface()
+        if (surface == RokidSurface.SECTIONS) {
+            sectionsView?.showAt(sectionsState.index)
+        } else {
+            sectionsView?.hideSections()
+            if (surface != RokidSurface.BROWSE) sectionsState.close()
+        }
         state.syncSurface(surface)
         if (surface != lastRefreshedSurface) {
             lastRefreshedSurface = surface
@@ -323,7 +431,7 @@ object RokidControlsController {
                 pillUntil = SystemClock.uptimeMillis() + PILL_MS
                 mainHandler.postDelayed(endPill, PILL_MS)
             }
-            RokidSurface.BROWSE -> pillUntil = 0L
+            RokidSurface.BROWSE, RokidSurface.SECTIONS -> pillUntil = 0L
         }
     }
 
@@ -336,6 +444,17 @@ object RokidControlsController {
         if (activity == null) {
             ringView.hide()
             hudView.hideHud()
+            return
+        }
+        if (searchPending || searchVisible) {
+            ringView.hide()
+            hudView.hideHud()
+            return
+        }
+        if (surface == RokidSurface.SECTIONS) {
+            ringView.hide()
+            hudView.setFaded(false)
+            hudView.show(true, "Sections", "${sectionsState.index + 1} / ${RokidSection.entries.size}", RokidHudText.hints(surface))
             return
         }
         if (surface != RokidSurface.BROWSE) {
@@ -376,7 +495,7 @@ object RokidControlsController {
 
     private fun refreshRail(surface: RokidSurface) {
         val view = rail ?: return
-        if (surface == RokidSurface.BROWSE) {
+        if (surface == RokidSurface.BROWSE || surface == RokidSurface.SECTIONS) {
             playerRailArmed = false
             view.hideRail()
             return
@@ -532,6 +651,10 @@ object RokidControlsController {
 
     private fun execute(activity: Activity, dispatch: RokidDispatch): Boolean {
         return when (dispatch.command) {
+            RokidCommand.SECTIONS_OPEN -> false // Back is intercepted before mapping.
+            RokidCommand.SECTIONS_PREVIOUS -> { sectionsState.move(-1); true }
+            RokidCommand.SECTIONS_NEXT -> { sectionsState.move(1); true }
+            RokidCommand.SECTIONS_SELECT -> activateSection(activity)
             RokidCommand.IGNORE -> false
             RokidCommand.CONSUME, RokidCommand.RAIL_MOVED, RokidCommand.RAIL_REVEAL -> true
             RokidCommand.PASS_BACK -> false

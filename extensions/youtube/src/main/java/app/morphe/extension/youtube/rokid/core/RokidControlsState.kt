@@ -14,6 +14,7 @@ import java.util.Locale
  */
 enum class RokidSurface {
     BROWSE,
+    SECTIONS,
     PLAYER,
 
     /** PlayerType WATCH_WHILE_FULLSCREEN: no rail, swipes seek and tap toggles playback. */
@@ -34,6 +35,10 @@ enum class RokidCommand {
     FEED_PREVIOUS,
     FEED_NEXT,
     FEED_SELECT,
+    SECTIONS_OPEN,
+    SECTIONS_PREVIOUS,
+    SECTIONS_NEXT,
+    SECTIONS_SELECT,
     PASS_BACK,
     RAIL_MOVED,
 
@@ -206,16 +211,19 @@ class RokidControlsState {
                 RokidSurface.PLAYER -> revealOr { moveRail(-1) }
                 RokidSurface.FULLSCREEN -> direct(RokidRailItem.SEEK_BACK)
                 RokidSurface.BROWSE -> feed(RokidCommand.FEED_PREVIOUS)
+                RokidSurface.SECTIONS -> RokidDispatch(RokidCommand.SECTIONS_PREVIOUS, true)
             }
             RokidKeyMapper.Action.NEXT -> when (surface) {
                 RokidSurface.PLAYER -> revealOr { moveRail(1) }
                 RokidSurface.FULLSCREEN -> direct(RokidRailItem.SEEK_FORWARD)
                 RokidSurface.BROWSE -> feed(RokidCommand.FEED_NEXT)
+                RokidSurface.SECTIONS -> RokidDispatch(RokidCommand.SECTIONS_NEXT, true)
             }
             RokidKeyMapper.Action.SELECT -> when (surface) {
                 RokidSurface.PLAYER -> revealOr { activateRail() }
                 RokidSurface.FULLSCREEN -> direct(RokidRailItem.PLAY_PAUSE)
                 RokidSurface.BROWSE -> feed(RokidCommand.FEED_SELECT)
+                RokidSurface.SECTIONS -> RokidDispatch(RokidCommand.SECTIONS_SELECT, true)
             }
             RokidKeyMapper.Action.BACK ->
                 // Physical BACK always passes through. Rail Back select is PLAYER_BACK.

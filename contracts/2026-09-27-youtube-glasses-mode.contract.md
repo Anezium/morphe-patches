@@ -1,7 +1,7 @@
 ---
 task: youtube-glasses-mode
 date: 2026-09-27
-status: active
+status: delivered-with-visual-deviations
 repo: E:\Tools\Rokid\Morphe-Patches
 branch: rokid-glasses-controls
 scope_globs:
@@ -208,3 +208,24 @@ a slice, uninstalling anything other than `.rokidtest`, any acceptance row that 
 made green after 2 attempts (report with the logcat/screenshot evidence, do not soften it).
 Final report: per slice, commit hash, acceptance rows with the real command output tails,
 paths of the evidence screenshots, and anything left undone.
+
+# User-authorized continuation: optional automatic keyboard
+
+On 2026-09-27 the user requested an enable/disable option in the Nexus YouTube
+menu and then authorized resuming device verification. This supersedes the
+phone-side/Nexus exclusion solely for that setting and its supporting keyboard
+behavior, tests and documentation in `E:/Tools/Rokid/RokidNexus-youtube`.
+No new transport, plugin capability, glasses IME change or main YouTube update
+is required. The phone preference defaults off and is checked against the two
+exact Morphe YouTube package names for real editable sessions.
+
+Acceptance row 12 is verified with **Glasses apps > Set up YouTube > Auto-open
+keyboard** enabled. Disabled mode must preserve manual keyboard use. Both modes,
+preference persistence, and actual phone-to-YouTube typing passed device checks.
+Nexus commits: `e0aaee0a`, `a94a2957`. The option was left off after verification.
+
+Delivery retains the previously reported visual deviations: the five rail keys
+use the mockup's 80 px rather than the contradictory 80 dp requirement; search
+keeps YouTube's native field/UI; destinations other than Home retain native
+content layouts. Evidence, command tails and slice commits are recorded in
+`E:/Tools/Rokid/tmp/morphe-rokid-prototype/evidence/continuation-report.md`.

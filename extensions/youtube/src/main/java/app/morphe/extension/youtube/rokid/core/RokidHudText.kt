@@ -18,6 +18,11 @@ data class RokidHint(val glyph: String, val label: String)
 object RokidHudText {
     fun hints(surface: RokidSurface, playing: Boolean = true): List<RokidHint> {
         return when (surface) {
+            RokidSurface.SECTIONS -> listOf(
+                RokidHint("⇅", "choose"),
+                RokidHint("●", "open"),
+                RokidHint("◂", "close / exit"),
+            )
             RokidSurface.FULLSCREEN -> listOf(
                 RokidHint("●", if (playing) "pause" else "play"),
                 RokidHint("⇄", "seek 10 s"),

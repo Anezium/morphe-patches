@@ -29,6 +29,25 @@ class RokidControlsStateTest {
     }
 
     @Test
+    fun sectionsOwnDirectionAndSelectButBackStaysWithController() {
+        val expected = mapOf(
+            RokidKeyMapper.Action.PREVIOUS to RokidCommand.SECTIONS_PREVIOUS,
+            RokidKeyMapper.Action.NEXT to RokidCommand.SECTIONS_NEXT,
+            RokidKeyMapper.Action.SELECT to RokidCommand.SECTIONS_SELECT,
+            RokidKeyMapper.Action.DUPLICATE to RokidCommand.CONSUME,
+        )
+        expected.forEach { (action, command) ->
+            val dispatch = state.dispatch(action, RokidSurface.SECTIONS)
+            assertEquals(command, dispatch.command)
+            assertTrue(dispatch.consume)
+        }
+        val back = state.dispatch(RokidKeyMapper.Action.BACK, RokidSurface.SECTIONS)
+        assertEquals(RokidCommand.PASS_BACK, back.command)
+        assertFalse(back.consume)
+        assertFalse(state.dispatch(RokidKeyMapper.Action.NONE, RokidSurface.SECTIONS).consume)
+    }
+
+    @Test
     fun browseBackDoesNotTrap() {
         val dispatch = state.dispatch(RokidKeyMapper.Action.BACK, RokidSurface.BROWSE)
         assertEquals(RokidCommand.PASS_BACK, dispatch.command)
