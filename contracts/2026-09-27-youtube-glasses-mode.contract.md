@@ -270,3 +270,25 @@ auto-translate entry is omitted.
 `:patches:test` passed with 76 Rokid tests, and a `-SkipDeploy` build applied
 "Rokid controls" with the new hooks present in the dex. Device verification is
 still pending because another session had the glasses. Commit `123b54b3`.
+
+# User-authorized continuation: remove playback reminders
+
+On 2026-09-27 the user explicitly requested removing bedtime/break reminders
+from the final glasses app, not just switching off a preference. The Rokid
+patch replaces both reminder subscription entry points with empty methods and
+removes their General settings rows after native V1/V2 preference creation.
+The account's saved schedule cannot recreate those subscriptions. The shared
+reminder base and the data-usage reminder controller remain intact.
+
+These bytecode targets are pinned to the sole supported YouTube 21.04.223 APK;
+fingerprint, signature and superclass checks must fail patching on a mismatch.
+Packaged DEX verification must confirm both subscription bodies are absent and
+both preference removals run before every General settings return.
+
+The user also requested automatic captions off by default. The Rokid patch now
+depends explicitly on the existing auto-captions hook, and applies BOTH_DISABLED
+once on both existing and fresh glasses installs. Native manual captions and
+language selection remain available. Later explicit changes to the auto-caption
+preference are preserved. Installation remains limited to `.rokidtest`.
+
+Evidence: `E:/Tools/Rokid/tmp/morphe-rokid-prototype/evidence/playback-preferences/`.

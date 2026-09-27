@@ -8,6 +8,7 @@
 package app.morphe.extension.youtube.patches;
 
 import android.app.Activity;
+import android.content.SharedPreferences;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,6 +17,7 @@ import app.morphe.extension.shared.Logger;
 import app.morphe.extension.youtube.rokid.RokidCaptionsController;
 import app.morphe.extension.youtube.rokid.RokidControlsController;
 import app.morphe.extension.youtube.rokid.RokidPlayPauseController;
+import app.morphe.extension.youtube.settings.Settings;
 
 /**
  * Named Rokid controls patch gate. {@link #isPatchIncluded()} is rewritten true at patch time.
@@ -106,9 +108,20 @@ public final class RokidControlsPatch {
             return;
         }
         try {
+            initializeCaptionDefaults(activity);
             RokidControlsController.attach(activity, contentRoot);
         } catch (Exception ex) {
             Logger.printException(() -> "Rokid attach failure", ex);
+        }
+    }
+
+    private static void initializeCaptionDefaults(Activity activity) {
+        SharedPreferences preferences = activity.getSharedPreferences("morphe_rokid", 0);
+        if (!preferences.getBoolean("manual_captions_default_v1", false)) {
+            // Migrate existing glasses installs as well as fresh installs. Manual track
+            // selection remains native; a later explicit auto-caption preference is preserved.
+            Settings.AUTO_CAPTIONS_STYLE.save(AutoCaptionsPatch.AutoCaptionsStyle.BOTH_DISABLED);
+            preferences.edit().putBoolean("manual_captions_default_v1", true).apply();
         }
     }
 

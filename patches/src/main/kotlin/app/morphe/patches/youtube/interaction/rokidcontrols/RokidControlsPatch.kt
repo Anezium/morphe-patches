@@ -24,6 +24,7 @@ import app.morphe.patches.all.misc.resources.ResourceType
 import app.morphe.patches.all.misc.resources.resourceLiteral
 import app.morphe.patches.all.misc.resources.resourceMappingPatch
 import app.morphe.patches.youtube.layout.sponsorblock.ControlsOverlayFingerprint
+import app.morphe.patches.youtube.layout.captions.autoCaptionsPatch
 import app.morphe.patches.youtube.misc.playercontrols.PlayerTopControlsInflateFingerprint
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
@@ -109,11 +110,13 @@ val rokidControlsPatch = bytecodePatch(
         playerTypeHookPatch,
         engagementPanelHookPatch,
         resourceMappingPatch,
+        autoCaptionsPatch,
     )
 
     compatibleWith(ROKID_YOUTUBE_COMPATIBILITY)
 
     execute {
+        stripRokidReminders()
         setExtensionIsPatchIncluded(EXTENSION_CLASS)
         videoTimeHook(EXTENSION_CLASS, "onVideoTime")
         onCreateHook(EXTENSION_CLASS, "onPlayerInitialized")
