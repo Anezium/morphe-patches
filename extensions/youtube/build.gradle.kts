@@ -13,6 +13,7 @@ dependencies {
     compileOnly(project(":extensions:youtube:stub"))
 
     implementation(libs.collections4)
+    implementation(libs.hiddenapi)
     implementation(libs.protobuf.javalite)
 }
 
