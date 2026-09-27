@@ -606,10 +606,6 @@ object RokidControlsController {
                     "playCanActivate=$playCanActivate seekAvailable=$seekAvailable"
             }
         }
-        activity?.let { host ->
-            val playerId = resolveViewId(host, "player_view")
-            if (playerId != 0) RokidVideoBlackLevel.apply(host.findViewById(playerId))
-        }
         val playing = videoState == VideoState.PLAYING
         val time = RokidRailLabels.resolvePlaybackTime(
             controllerTime,
