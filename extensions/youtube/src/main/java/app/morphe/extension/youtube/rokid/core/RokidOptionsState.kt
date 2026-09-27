@@ -12,11 +12,13 @@ import java.util.Locale
 enum class RokidOptionsPage {
     MAIN,
     SPEED,
+    QUALITY,
     LANGUAGE,
 }
 
 enum class RokidOption {
     SPEED,
+    QUALITY,
     CAPTIONS,
     LANGUAGE,
 }
@@ -40,6 +42,27 @@ object RokidPlaybackSpeeds {
     /** Row of the listed speed closest to [speed], so a custom native speed still lands somewhere. */
     fun nearestIndex(speed: Float): Int {
         return values.indices.minByOrNull { kotlin.math.abs(values[it] - speed) } ?: values.indexOf(1f)
+    }
+}
+
+/**
+ * Video qualities as YouTube lists them: largest first, with Automatic
+ * ([AUTOMATIC], resolution -2) at index 0.
+ */
+object RokidVideoQualities {
+    const val AUTOMATIC = -2
+
+    /** Row of the chosen quality: Automatic when that is the preference, else the playing resolution. */
+    fun currentIndex(resolutions: List<Int>, preferred: Int, playing: Int?): Int {
+        if (preferred == AUTOMATIC) return resolutions.indexOf(AUTOMATIC)
+        return resolutions.indexOf(playing ?: preferred).takeIf { it >= 0 } ?: resolutions.indexOf(preferred)
+    }
+
+    /** "Auto (240p)" while Automatic, so the real resolution stays visible. */
+    fun summary(preferred: Int, playingName: String?): String = when {
+        playingName == null -> if (preferred == AUTOMATIC) "Auto" else "${preferred}p"
+        preferred == AUTOMATIC -> "Auto ($playingName)"
+        else -> playingName
     }
 }
 
@@ -85,6 +108,7 @@ class RokidOptionsState {
         }
         index = when (page) {
             RokidOptionsPage.SPEED -> RokidOption.SPEED.ordinal
+            RokidOptionsPage.QUALITY -> RokidOption.QUALITY.ordinal
             else -> RokidOption.LANGUAGE.ordinal
         }
         page = RokidOptionsPage.MAIN

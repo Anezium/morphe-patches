@@ -16,6 +16,7 @@ import app.morphe.extension.youtube.rokid.RokidOptionsPage
 import app.morphe.extension.youtube.rokid.RokidOptionsState
 import app.morphe.extension.youtube.rokid.RokidPlaybackSpeeds
 import app.morphe.extension.youtube.rokid.RokidSurface
+import app.morphe.extension.youtube.rokid.RokidVideoQualities
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -41,9 +42,9 @@ class RokidOptionsStateTest {
     @Test
     fun moveWrapsInsideThePage() {
         state.open()
-        state.move(-1, 3)
+        state.move(-1, 4)
         assertEquals(RokidOption.LANGUAGE, state.selectedOption)
-        state.move(1, 3)
+        state.move(1, 4)
         assertEquals(0, state.index)
     }
 
@@ -55,6 +56,9 @@ class RokidOptionsStateTest {
         state.back()
         assertEquals(RokidOptionsPage.MAIN, state.page)
         assertEquals(RokidOption.SPEED, state.selectedOption)
+        state.enter(RokidOptionsPage.QUALITY, 3)
+        state.back()
+        assertEquals(RokidOption.QUALITY, state.selectedOption)
         state.enter(RokidOptionsPage.LANGUAGE, 2)
         state.back()
         assertEquals(RokidOption.LANGUAGE, state.selectedOption)
@@ -74,6 +78,24 @@ class RokidOptionsStateTest {
         state.enter(RokidOptionsPage.SPEED, 2)
         assertEquals(0, state.index)
         assertEquals(RokidOptionsPage.MAIN, state.page)
+    }
+
+    @Test
+    fun qualityRowFollowsThePreference() {
+        val resolutions = listOf(RokidVideoQualities.AUTOMATIC, 1080, 720, 480, 360, 240)
+        assertEquals(0, RokidVideoQualities.currentIndex(resolutions, RokidVideoQualities.AUTOMATIC, 240))
+        assertEquals(3, RokidVideoQualities.currentIndex(resolutions, 480, 480))
+        // A preference above what the video offers lands on what actually plays.
+        assertEquals(2, RokidVideoQualities.currentIndex(resolutions, 1440, 720))
+        assertEquals(3, RokidVideoQualities.currentIndex(resolutions, 480, null))
+    }
+
+    @Test
+    fun qualitySummaryShowsTheRealResolutionUnderAuto() {
+        assertEquals("Auto (240p)", RokidVideoQualities.summary(RokidVideoQualities.AUTOMATIC, "240p"))
+        assertEquals("720p", RokidVideoQualities.summary(720, "720p"))
+        assertEquals("Auto", RokidVideoQualities.summary(RokidVideoQualities.AUTOMATIC, null))
+        assertEquals("480p", RokidVideoQualities.summary(480, null))
     }
 
     @Test

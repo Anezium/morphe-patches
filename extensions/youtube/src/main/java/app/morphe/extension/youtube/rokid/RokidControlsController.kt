@@ -29,6 +29,8 @@ import app.morphe.extension.shared.Utils
 import app.morphe.extension.youtube.patches.OpenVideosFullscreenHookPatch
 import app.morphe.extension.youtube.patches.RokidControlsPatch
 import app.morphe.extension.youtube.patches.VideoInformation
+import app.morphe.extension.youtube.patches.playback.quality.RememberVideoQualityPatch
+import app.morphe.extension.youtube.settings.Settings
 import app.morphe.extension.youtube.shared.EngagementPanel
 import app.morphe.extension.youtube.shared.NavigationBar
 import app.morphe.extension.youtube.shared.PlayerType
@@ -761,6 +763,7 @@ object RokidControlsController {
     private fun optionsTitle(): String = when (optionsState.page) {
         RokidOptionsPage.MAIN -> "Options"
         RokidOptionsPage.SPEED -> "Playback speed"
+        RokidOptionsPage.QUALITY -> "Quality"
         RokidOptionsPage.LANGUAGE -> "Subtitles"
     }
 
@@ -771,9 +774,17 @@ object RokidControlsController {
         val current = snapshot?.current ?: -1
         val hasTracks = RokidCaptionChoices.hasTracks(choices)
         val speed = VideoInformation.getPlaybackSpeed()
+        val qualities = VideoInformation.getCurrentQualities().orEmpty().toList()
+        val preferredQuality = RememberVideoQualityPatch.getDefaultQualityResolution()
+        val playingQuality = VideoInformation.getCurrentQuality()
         return when (optionsState.page) {
             RokidOptionsPage.MAIN -> listOf(
                 RokidOptionRow("Speed", RokidPlaybackSpeeds.label(speed)),
+                RokidOptionRow(
+                    "Quality",
+                    RokidVideoQualities.summary(preferredQuality, playingQuality?.patch_getQualityName()),
+                    enabled = qualities.isNotEmpty(),
+                ),
                 RokidOptionRow(
                     "Subtitles",
                     when {
@@ -791,10 +802,36 @@ object RokidControlsController {
                     RokidOptionRow(RokidPlaybackSpeeds.label(value), current = i == active)
                 }
             }
+            RokidOptionsPage.QUALITY -> {
+                val active = qualityIndex(qualities, preferredQuality)
+                qualities.mapIndexed { i, quality ->
+                    RokidOptionRow(quality.patch_getQualityName(), current = i == active)
+                }
+            }
             RokidOptionsPage.LANGUAGE -> choices.mapIndexed { i, choice ->
                 RokidOptionRow(choice.label, current = i == current)
             }
         }
+    }
+
+    private fun qualityIndex(qualities: List<VideoInformation.VideoQualityInterface>, preferred: Int): Int =
+        RokidVideoQualities.currentIndex(
+            qualities.map { it.patch_getResolution() },
+            preferred,
+            VideoInformation.getCurrentQuality()?.patch_getResolution(),
+        )
+
+    /**
+     * Applies [quality] now and keeps it as the default for the next videos,
+     * on Wi-Fi and mobile alike since the glasses switch between the two.
+     */
+    private fun selectQuality(quality: VideoInformation.VideoQualityInterface) {
+        val resolution = quality.patch_getResolution()
+        Settings.VIDEO_QUALITY_DEFAULT_WIFI.save(resolution)
+        Settings.VIDEO_QUALITY_DEFAULT_MOBILE.save(resolution)
+        VideoInformation.setDesiredVideoResolution(resolution)
+        VideoInformation.changeQuality(quality)
+        Log.i("RokidControls", "quality selected ${quality.patch_getQualityName()} ($resolution)")
     }
 
     private fun selectOption() {
@@ -806,6 +843,14 @@ object RokidControlsController {
                     RokidOptionsPage.SPEED,
                     RokidPlaybackSpeeds.nearestIndex(VideoInformation.getPlaybackSpeed()),
                 )
+                RokidOption.QUALITY -> VideoInformation.getCurrentQualities()?.toList()?.let { qualities ->
+                    if (qualities.isNotEmpty()) {
+                        optionsState.enter(
+                            RokidOptionsPage.QUALITY,
+                            qualityIndex(qualities, RememberVideoQualityPatch.getDefaultQualityResolution()),
+                        )
+                    }
+                }
                 RokidOption.CAPTIONS -> if (snapshot == null || !RokidCaptionsController.toggle(snapshot)) {
                     Logger.printDebug { "Rokid captions: nothing to toggle" }
                 }
@@ -817,6 +862,10 @@ object RokidControlsController {
                 RokidPlaybackSpeeds.values.getOrNull(optionsState.index)?.let {
                     VideoInformation.changePlaybackSpeed(it)
                 }
+                optionsState.back()
+            }
+            RokidOptionsPage.QUALITY -> {
+                VideoInformation.getCurrentQualities()?.getOrNull(optionsState.index)?.let(::selectQuality)
                 optionsState.back()
             }
             RokidOptionsPage.LANGUAGE -> {
