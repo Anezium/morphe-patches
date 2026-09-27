@@ -22,6 +22,21 @@ object RokidFeedScope {
 
     val containerNames = listOf(RESULTS, LOADING_LAYOUT, PANE_FRAGMENT_CONTENTS)
 
+    /**
+     * Chrome set GONE in glasses mode, from the 21.04 home tree (dumpsys):
+     * top bar, tab bar and the filter chips bar. The tab bar's avatar keeps
+     * its own id and is hidden with it.
+     */
+    val hiddenChromeNames = listOf(
+        "appbar_layout",
+        "toolbar_container",
+        "toolbar",
+        "filter_bar",
+        "bottom_bar_container",
+        "pivot_bar",
+        "pivot_bar_thumbnail",
+    )
+
     fun isResultsContainer(entryName: String): Boolean {
         return entryName == RESULTS ||
             entryName == LOADING_LAYOUT ||

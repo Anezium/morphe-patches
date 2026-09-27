@@ -14,6 +14,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityEvent
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.SearchView
@@ -36,8 +37,14 @@ import java.lang.ref.WeakReference
  * Holds only a WeakReference to the host Activity. Recreates the rail if the Activity instance changes.
  */
 object RokidControlsController {
+    /** Room above the snapped card for the 3 dp ring and its 3 dp offset. */
+    private const val FEED_RING_CLEARANCE_DP = 6f
+
     private val state = RokidControlsState()
     private var rail: RokidPlayerRailView? = null
+    private var ring: RokidFocusRingView? = null
+    private var hud: RokidHudView? = null
+    private var chrome: RokidChromeHider? = null
     private var activityRef: WeakReference<Activity> = WeakReference(null)
     private var observersBound = false
     @Volatile
@@ -46,13 +53,13 @@ object RokidControlsController {
     private var consumeMatchingKeyUp: Boolean = false
 
     private val onPlayerTypeChanged: (PlayerType) -> Unit = {
-        Utils.runOnMainThreadNowOrLater { refreshRail() }
+        Utils.runOnMainThreadNowOrLater { refresh() }
     }
     private val onVideoStateChanged: (VideoState) -> Unit = {
-        Utils.runOnMainThreadNowOrLater { refreshRail() }
+        Utils.runOnMainThreadNowOrLater { refresh() }
     }
     private val onDescriptionChanged: (Boolean) -> Unit = {
-        Utils.runOnMainThreadNowOrLater { refreshRail() }
+        Utils.runOnMainThreadNowOrLater { refresh() }
     }
 
     @JvmStatic
@@ -61,22 +68,26 @@ object RokidControlsController {
             return
         }
         bindActivity(activity)
-        val view = ensureRail(activity)
-        addRailTo(contentRoot, view)
+        ensureOverlays(activity)
+        addOverlaysTo(contentRoot)
+        bindChrome(activity)
         bindObservers()
-        refreshRail()
+        refresh()
     }
 
     @JvmStatic
     fun reattach(contentRoot: ViewGroup) {
-        val view = rail ?: return
-        addRailTo(contentRoot, view)
-        refreshRail()
+        if (rail == null) {
+            return
+        }
+        addOverlaysTo(contentRoot)
+        activityRef.get()?.let { bindChrome(it) }
+        refresh()
     }
 
     @JvmStatic
     fun detach() {
-        dropRail()
+        dropOverlays()
         activityRef = WeakReference(null)
         mutatePlaybackCache { RokidRailLabels.resetPlaybackCache() }
         playerRailArmed = false
@@ -98,7 +109,7 @@ object RokidControlsController {
             mutatePlaybackCache { current ->
                 RokidRailLabels.playbackCacheAfterTimeSample(current, idAtSample, videoTimeMs)
             }
-            refreshRail()
+            refresh()
         }
     }
 
@@ -110,7 +121,7 @@ object RokidControlsController {
     fun onPlayerInitialized() {
         Utils.runOnMainThreadNowOrLater {
             mutatePlaybackCache { RokidRailLabels.resetPlaybackCache() }
-            refreshRail()
+            refresh()
         }
     }
 
@@ -125,7 +136,7 @@ object RokidControlsController {
             mutatePlaybackCache { current ->
                 RokidRailLabels.playbackCacheAfterVideoId(current, id)
             }
-            refreshRail()
+            refresh()
         }
     }
 
@@ -171,7 +182,7 @@ object RokidControlsController {
             event.action == KeyEvent.ACTION_DOWN &&
                 consumed &&
                 RokidKeyMapper.isDirectionOrSelect(event.keyCode)
-        refreshRail()
+        refresh()
         logKey(
             event,
             RokidKeyBypass.Reason.NONE,
@@ -186,32 +197,59 @@ object RokidControlsController {
     private fun bindActivity(activity: Activity) {
         val previous = activityRef.get()
         if (previous !== activity) {
-            dropRail()
+            dropOverlays()
             activityRef = WeakReference(activity)
         }
     }
 
-    private fun ensureRail(activity: Activity): RokidPlayerRailView {
-        val existing = rail
-        if (existing != null) {
-            return existing
+    private fun ensureOverlays(activity: Activity) {
+        if (ring == null) {
+            ring = RokidFocusRingView(activity).also { it.layoutParams = fullLayoutParams() }
         }
-        val created = RokidPlayerRailView(activity)
-        created.layoutParams = railLayoutParams(activity)
-        rail = created
-        return created
+        if (hud == null) {
+            hud = RokidHudView(activity).also { it.layoutParams = fullLayoutParams() }
+        }
+        if (rail == null) {
+            rail = RokidPlayerRailView(activity).also { it.layoutParams = railLayoutParams(activity) }
+        }
     }
 
-    private fun addRailTo(contentRoot: ViewGroup, view: RokidPlayerRailView) {
-        val params = view.layoutParams ?: railLayoutParams(contentRoot.context)
-        (view.parent as? ViewGroup)?.removeView(view)
-        contentRoot.addView(view, params)
+    /** Ring under the HUD bands, rail on top: same order on every reattach. */
+    private fun addOverlaysTo(contentRoot: ViewGroup) {
+        listOfNotNull(ring, hud, rail).forEach { view ->
+            val params = view.layoutParams ?: fullLayoutParams()
+            (view.parent as? ViewGroup)?.removeView(view)
+            contentRoot.addView(view, params)
+        }
     }
 
-    private fun dropRail() {
-        val view = rail
+    private fun dropOverlays() {
+        val views = listOfNotNull(ring, hud, rail)
+        ring?.hide()
+        ring = null
+        hud = null
         rail = null
-        (view?.parent as? ViewGroup)?.removeView(view)
+        views.forEach { view -> (view.parent as? ViewGroup)?.removeView(view) }
+        chrome?.restore()
+        chrome = null
+    }
+
+    private fun bindChrome(activity: Activity) {
+        val decor = activity.window?.decorView ?: return
+        val hider = chrome ?: RokidChromeHider(
+            RokidFeedScope.hiddenChromeNames
+                .map { resolveViewId(activity, it) }
+                .filter { it != 0 }
+                .toSet(),
+        ).also { chrome = it }
+        hider.bind(decor)
+    }
+
+    private fun fullLayoutParams(): FrameLayout.LayoutParams {
+        return FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        )
     }
 
     private fun railLayoutParams(context: Context): FrameLayout.LayoutParams {
@@ -220,7 +258,8 @@ object RokidControlsController {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL,
         )
-        params.bottomMargin = (12 * context.resources.displayMetrics.density).toInt()
+        params.bottomMargin =
+            ((RokidHudView.HINTS_DP + 8f) * context.resources.displayMetrics.density).toInt()
         return params
     }
 
@@ -252,10 +291,50 @@ object RokidControlsController {
         }
     }
 
-    private fun refreshRail() {
-        val view = rail ?: return
+    private fun refresh() {
         val surface = currentSurface()
         state.syncSurface(surface)
+        refreshFeed(surface)
+        refreshRail(surface)
+    }
+
+    private fun refreshFeed(surface: RokidSurface) {
+        val ringView = ring ?: return
+        val hudView = hud ?: return
+        val activity = activityRef.get()
+        if (activity == null) {
+            ringView.hide()
+            hudView.hideHud()
+            return
+        }
+        if (surface != RokidSurface.BROWSE) {
+            ringView.hide()
+            if (RokidRailLabels.hidePlayerRailForDescription(EngagementPanel.isDescription())) {
+                hudView.hideHud()
+            } else {
+                hudView.show(header = false, tag = null, counter = null, hints = RokidHudText.hints(surface))
+            }
+            return
+        }
+        val container = findResultsContainer(activity)
+        val item = container?.let { feedItemRoot(activity.currentFocus, it) }
+        var counter: String? = null
+        if (container != null && item != null) {
+            ringView.follow(ringTargetFor(item), item, container)
+            counter = feedCounter(container, item)
+        } else {
+            ringView.hide()
+        }
+        hudView.show(
+            header = true,
+            tag = selectedSectionLabel(activity),
+            counter = counter,
+            hints = RokidHudText.hints(surface),
+        )
+    }
+
+    private fun refreshRail(surface: RokidSurface) {
+        val view = rail ?: return
         if (surface != RokidSurface.PLAYER) {
             playerRailArmed = false
             view.hideRail()
@@ -268,7 +347,7 @@ object RokidControlsController {
         if (!playerRailArmed) {
             playerRailArmed = true
             // Length/time often arrive after PlayerType. One delayed paint, no key required.
-            Utils.runOnMainThreadDelayed({ refreshRail() }, 800)
+            Utils.runOnMainThreadDelayed({ refresh() }, 800)
         }
         val activity = activityRef.get()
         val playCanActivate = activity != null && RokidPlayPauseController.canActivate(activity)
@@ -469,12 +548,14 @@ object RokidControlsController {
         if (items.isNotEmpty()) {
             val currentIndex = fromItem?.let { items.indexOf(it) } ?: -1
             val targetItem = when {
-                currentIndex < 0 -> if (next) items.first() else items.last()
+                currentIndex < 0 && next ->
+                    items.firstOrNull { it.bottom > container.paddingTop } ?: items.first()
+                currentIndex < 0 -> items.last()
                 next -> items.getOrNull(currentIndex + 1)
                 else -> items.getOrNull(currentIndex - 1)
             }
             if (targetItem != null) {
-                return focusFeedItem(targetItem)
+                return focusFeedItem(targetItem, container)
             }
         }
         val from = fromItem ?: items.lastOrNull() ?: container
@@ -549,25 +630,128 @@ object RokidControlsController {
             if (item === fromItem) {
                 continue
             }
-            if (focusFeedItem(item)) {
+            if (focusFeedItem(item, container)) {
                 return true
             }
         }
         return false
     }
 
-    private fun focusFeedItem(item: View): Boolean {
+    /**
+     * Scroll first, focus second: once the card sits at the top it is fully on
+     * screen, so RecyclerView's own focus scroll has nothing left to animate.
+     * Focusing first starts a smooth scroll that would run on past the snap.
+     */
+    private fun focusFeedItem(item: View, container: ViewGroup): Boolean {
+        snapFeedItem(item, container)
         val target = preferredActivation(item)
-        if (target.requestFocus()) {
-            target.requestRectangleOnScreen(android.graphics.Rect(0, 0, target.width, target.height), false)
-            return true
+        val focused = target.requestFocus() || (item !== target && item.requestFocus())
+        if (!focused) {
+            Logger.printDebug { "Rokid feed step: item did not take focus" }
+            return false
         }
-        if (item !== target && item.requestFocus()) {
-            item.requestRectangleOnScreen(android.graphics.Rect(0, 0, item.width, item.height), false)
-            return true
+        snapFeedItem(item, container)
+        return true
+    }
+
+    private fun snapFeedItem(item: View, container: ViewGroup) {
+        if (item.parent !== container) {
+            return
         }
-        Logger.printDebug { "Rokid feed step: item did not take focus" }
-        return false
+        val location = IntArray(2)
+        container.getLocationInWindow(location)
+        val contentTop = location[1] + container.paddingTop
+        item.getLocationInWindow(location)
+        val itemTop = location[1]
+        val hudView = hud
+        val headerBottom = if (hudView != null) {
+            hudView.getLocationInWindow(location)
+            location[1] + hudView.headerHeight
+        } else {
+            0
+        }
+        val outset = (FEED_RING_CLEARANCE_DP * container.resources.displayMetrics.density).toInt()
+        val delta = RokidFeedGeometry.snapDelta(itemTop, contentTop, headerBottom, outset)
+        if (delta != 0) {
+            container.scrollBy(0, delta)
+        }
+    }
+
+    /** The card's 16:9 thumbnail when it has one, else the card's large click target. */
+    private fun ringTargetFor(item: View): View {
+        val itemLocation = IntArray(2)
+        item.getLocationInWindow(itemLocation)
+        return findThumbnail(item, item.width, itemLocation[1], IntArray(2)) ?: preferredActivation(item)
+    }
+
+    private fun findThumbnail(view: View, itemWidth: Int, itemTop: Int, location: IntArray): View? {
+        if (!view.isShown) {
+            return null
+        }
+        view.getLocationInWindow(location)
+        if (RokidFeedGeometry.looksLikeThumbnail(view.width, view.height, itemWidth, location[1] - itemTop)) {
+            return view
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val found = findThumbnail(view.getChildAt(i) ?: continue, itemWidth, itemTop, location)
+                if (found != null) {
+                    return found
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * RecyclerView's accessibility delegate reports the adapter item count and
+     * the first visible adapter position; no RecyclerView API is linked here.
+     */
+    @Suppress("DEPRECATION")
+    private fun feedCounter(container: ViewGroup, item: View): String? {
+        val event = AccessibilityEvent.obtain()
+        return try {
+            container.onInitializeAccessibilityEvent(event)
+            val children = (0 until container.childCount)
+                .mapNotNull { container.getChildAt(it) }
+                .sortedBy { it.top }
+            val position = RokidFeedGeometry.adapterPosition(
+                firstVisiblePosition = event.fromIndex,
+                tops = IntArray(children.size) { children[it].top },
+                bottoms = IntArray(children.size) { children[it].bottom },
+                viewportTop = container.paddingTop,
+                viewportBottom = container.height - container.paddingBottom,
+                focusedIndex = children.indexOf(item),
+            )
+            RokidHudText.counter(position, event.itemCount)
+        } catch (ex: Exception) {
+            Logger.printDebug { "Rokid feed counter unavailable: $ex" }
+            null
+        } finally {
+            event.recycle()
+        }
+    }
+
+    /** Label of the selected tab, read from the hidden tab bar. */
+    private fun selectedSectionLabel(activity: Activity): String? {
+        val id = resolveViewId(activity, "pivot_bar")
+        if (id == 0) {
+            return null
+        }
+        val bar = activity.findViewById<View>(id) ?: return null
+        return findSelectedText(bar)
+    }
+
+    private fun findSelectedText(view: View): String? {
+        if (view is TextView && view.isSelected && !view.text.isNullOrBlank()) {
+            return view.text.toString()
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                findSelectedText(view.getChildAt(i) ?: continue)?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun activateFeedItem(item: View): Boolean {
