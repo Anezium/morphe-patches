@@ -15,6 +15,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.accessibility.AccessibilityEvent
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -46,6 +47,10 @@ object RokidControlsController {
     private const val FEED_RING_CLEARANCE_DP = 6f
     private const val RAIL_IDLE_MS = 3_000L
     private const val PILL_MS = 2_000L
+    /** Feed focus settles within this after a key, a surface change or a window focus change. */
+    private const val BROWSE_WATCH_MS = 4_000L
+    /** A cold home feed can take longer to load. */
+    private const val BROWSE_ATTACH_WATCH_MS = 10_000L
 
     private val state = RokidControlsState()
     private val sectionsState = RokidSectionsState()
@@ -72,6 +77,13 @@ object RokidControlsController {
         refresh()
     }
     private val endPill = Runnable { refresh() }
+    private val timeSampleExpired = Runnable { refresh() }
+    private var browseWatchUntil = 0L
+    private val onWindowFocus = ViewTreeObserver.OnWindowFocusChangeListener { focused ->
+        if (focused) watchBrowse(BROWSE_WATCH_MS)
+    }
+    private var lastTimeSampleAt = 0L
+    private var videoStateVideoId = ""
     private var pillUntil = 0L
     private var lastRefreshedSurface: RokidSurface? = null
     private var rail: RokidPlayerRailView? = null
@@ -89,7 +101,11 @@ object RokidControlsController {
         Utils.runOnMainThreadNowOrLater { refresh() }
     }
     private val onVideoStateChanged: (VideoState) -> Unit = {
-        Utils.runOnMainThreadNowOrLater { refresh() }
+        val idAtChange = VideoInformation.getVideoId()
+        Utils.runOnMainThreadNowOrLater {
+            videoStateVideoId = idAtChange
+            refresh()
+        }
     }
     private val onDescriptionChanged: (Boolean) -> Unit = {
         Utils.runOnMainThreadNowOrLater { refresh() }
@@ -106,6 +122,11 @@ object RokidControlsController {
         addOverlaysTo(contentRoot)
         bindChrome(activity)
         bindObservers()
+        activity.window?.decorView?.viewTreeObserver?.let {
+            it.removeOnWindowFocusChangeListener(onWindowFocus)
+            it.addOnWindowFocusChangeListener(onWindowFocus)
+        }
+        browseWatchUntil = SystemClock.uptimeMillis() + BROWSE_ATTACH_WATCH_MS
         refresh()
     }
 
@@ -157,6 +178,9 @@ object RokidControlsController {
             mutatePlaybackCache { current ->
                 RokidRailLabels.playbackCacheAfterTimeSample(current, idAtSample, videoTimeMs)
             }
+            lastTimeSampleAt = SystemClock.uptimeMillis()
+            mainHandler.removeCallbacks(timeSampleExpired)
+            mainHandler.postDelayed(timeSampleExpired, RokidRailLabels.TIME_SAMPLE_PLAYING_MS + 100L)
             refresh()
         }
     }
@@ -169,6 +193,8 @@ object RokidControlsController {
     fun onPlayerInitialized() {
         Utils.runOnMainThreadNowOrLater {
             mutatePlaybackCache { RokidRailLabels.resetPlaybackCache() }
+            lastTimeSampleAt = 0L
+            videoStateVideoId = ""
             refresh()
         }
     }
@@ -202,6 +228,7 @@ object RokidControlsController {
             return false
         }
         Utils.verifyOnMainThread()
+        browseWatchUntil = maxOf(browseWatchUntil, SystemClock.uptimeMillis() + BROWSE_WATCH_MS)
         if (RokidRingController.handleKeyEvent(activity, event)) return true
         val surface = currentSurface()
         val bypass = classifyBypass(activity)
@@ -464,16 +491,30 @@ object RokidControlsController {
         if (surface != lastRefreshedSurface) {
             lastRefreshedSurface = surface
             restartIdleTimers(surface)
+            browseWatchUntil = maxOf(browseWatchUntil, SystemClock.uptimeMillis() + BROWSE_WATCH_MS)
         }
         refreshFeed(surface)
         refreshRail(surface)
         scheduleBrowseRefresh()
     }
 
+    private fun effectiveVideoState(): String? = RokidRailLabels.effectiveVideoState(
+        VideoState.current?.name,
+        videoStateVideoId,
+        VideoInformation.getVideoId(),
+        lastTimeSampleAt.takeIf { it > 0L }?.let { SystemClock.uptimeMillis() - it },
+    )
+
+    private fun watchBrowse(ms: Long) {
+        browseWatchUntil = maxOf(browseWatchUntil, SystemClock.uptimeMillis() + ms)
+        scheduleBrowseRefresh()
+    }
+
+    /** Polls only while the feed may still be moving, so an idle home screen costs nothing. */
     private fun scheduleBrowseRefresh() {
         mainHandler.removeCallbacks(checkBrowse)
         if (activityRef.get() != null && currentSurface() == RokidSurface.BROWSE &&
-            !searchPending && !searchVisible
+            !searchPending && !searchVisible && SystemClock.uptimeMillis() < browseWatchUntil
         ) mainHandler.postDelayed(checkBrowse, 300L)
     }
 
@@ -527,7 +568,7 @@ object RokidControlsController {
             if (RokidRailLabels.hidePlayerRailForDescription(EngagementPanel.isDescription())) {
                 hudView.hideHud()
             } else {
-                val playing = VideoState.current == VideoState.PLAYING
+                val playing = effectiveVideoState() == VideoState.PLAYING.name
                 hudView.show(
                     header = false,
                     tag = null,
@@ -588,7 +629,7 @@ object RokidControlsController {
         }
         val activity = activityRef.get()
         val playCanActivate = activity != null && RokidPlayPauseController.canActivate(activity)
-        val videoState = VideoState.current
+        val videoState = effectiveVideoState()
         val length = VideoInformation.getVideoLength()
         val controllerTime = VideoInformation.getVideoTime()
         val currentVideoId = VideoInformation.getVideoId()
@@ -608,7 +649,7 @@ object RokidControlsController {
                     "playCanActivate=$playCanActivate seekAvailable=$seekAvailable"
             }
         }
-        val playing = videoState == VideoState.PLAYING
+        val playing = videoState == VideoState.PLAYING.name
         val time = RokidRailLabels.resolvePlaybackTime(
             controllerTime,
             RokidRailLabels.identityBoundCachedTime(playbackCache, currentVideoId),
@@ -625,7 +666,7 @@ object RokidControlsController {
             index = state.railIndex,
             keysVisible = !state.railHidden && surface == RokidSurface.PLAYER,
             playing = playing,
-            playPauseLabel = RokidRailLabels.playPause(playCanActivate, videoState?.name),
+            playPauseLabel = RokidRailLabels.playPause(playCanActivate, videoState),
             playPauseAvailable = playCanActivate,
             seekAvailable = seekAvailable,
             fullscreenLabel = "Fullscreen",

@@ -127,6 +127,27 @@ object RokidRailLabels {
      */
     fun hidePlayerRailForDescription(descriptionOpen: Boolean): Boolean = descriptionOpen
 
+    /** Time samples arrive about once a second while the video plays. */
+    const val TIME_SAMPLE_PLAYING_MS = 2_000L
+
+    /**
+     * VideoState only moves when the native controls update, which the hidden
+     * overlay leaves at null, or at the previous video's state, until the first
+     * play/pause. Trust it once it changed for [currentVideoId]; before that, a
+     * recent time sample means the video plays.
+     */
+    fun effectiveVideoState(
+        videoStateName: String?,
+        videoStateVideoId: String,
+        currentVideoId: String,
+        msSinceTimeSample: Long?,
+    ): String? {
+        if (videoStateName != null && currentVideoId.isNotEmpty() && videoStateVideoId == currentVideoId) {
+            return videoStateName
+        }
+        return if (msSinceTimeSample != null && msSinceTimeSample <= TIME_SAMPLE_PLAYING_MS) "PLAYING" else null
+    }
+
     fun playPause(canActivate: Boolean, videoStateName: String?): String {
         if (!canActivate) {
             return "Unavailable"

@@ -16,6 +16,7 @@ import app.morphe.extension.youtube.rokid.RokidRailLabels
 import app.morphe.extension.youtube.rokid.RokidSurface
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -116,6 +117,19 @@ class RokidControlsStateTest {
         assertEquals("Error", RokidRailLabels.playPause(true, "UNRECOVERABLE_ERROR"))
         assertEquals("Error", RokidRailLabels.playPause(true, "RECOVERABLE_ERROR"))
         assertEquals("Unavailable", RokidRailLabels.playPause(false, "UNRECOVERABLE_ERROR"))
+    }
+
+    @Test
+    fun timeSamplesStandInForVideoStateUntilItMovesForThisVideo() {
+        // Fresh start: VideoState is still null while the time keeps ticking.
+        assertEquals("PLAYING", RokidRailLabels.effectiveVideoState(null, "", "abc", 900L))
+        assertNull(RokidRailLabels.effectiveVideoState(null, "", "abc", 5_000L))
+        assertNull(RokidRailLabels.effectiveVideoState(null, "", "abc", null))
+        // The previous video's PAUSED is stale for the new one.
+        assertEquals("PLAYING", RokidRailLabels.effectiveVideoState("PAUSED", "old", "abc", 900L))
+        // Once it changed for this video, VideoState wins over a last sample.
+        assertEquals("PAUSED", RokidRailLabels.effectiveVideoState("PAUSED", "abc", "abc", 200L))
+        assertEquals("PLAYING", RokidRailLabels.effectiveVideoState("PLAYING", "abc", "abc", null))
     }
 
     @Test
