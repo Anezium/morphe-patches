@@ -19,6 +19,9 @@ enum class RokidSurface {
 
     /** PlayerType WATCH_WHILE_FULLSCREEN: no rail, swipes seek and tap toggles playback. */
     FULLSCREEN,
+
+    /** Player options panel (speed, captions) over the watch page. */
+    OPTIONS,
 }
 
 enum class RokidRailItem {
@@ -26,6 +29,7 @@ enum class RokidRailItem {
     SEEK_BACK,
     SEEK_FORWARD,
     FULLSCREEN,
+    OPTIONS,
     BACK,
 }
 
@@ -49,6 +53,10 @@ enum class RokidCommand {
     ACTIVATE_SEEK_FORWARD,
     ACTIVATE_FULLSCREEN,
     PLAYER_BACK,
+    OPTIONS_OPEN,
+    OPTIONS_PREVIOUS,
+    OPTIONS_NEXT,
+    OPTIONS_SELECT,
 }
 
 data class RokidDispatch(
@@ -212,18 +220,21 @@ class RokidControlsState {
                 RokidSurface.FULLSCREEN -> direct(RokidRailItem.SEEK_BACK)
                 RokidSurface.BROWSE -> feed(RokidCommand.FEED_PREVIOUS)
                 RokidSurface.SECTIONS -> RokidDispatch(RokidCommand.SECTIONS_PREVIOUS, true)
+                RokidSurface.OPTIONS -> RokidDispatch(RokidCommand.OPTIONS_PREVIOUS, true, railIndex)
             }
             RokidKeyMapper.Action.NEXT -> when (surface) {
                 RokidSurface.PLAYER -> revealOr { moveRail(1) }
                 RokidSurface.FULLSCREEN -> direct(RokidRailItem.SEEK_FORWARD)
                 RokidSurface.BROWSE -> feed(RokidCommand.FEED_NEXT)
                 RokidSurface.SECTIONS -> RokidDispatch(RokidCommand.SECTIONS_NEXT, true)
+                RokidSurface.OPTIONS -> RokidDispatch(RokidCommand.OPTIONS_NEXT, true, railIndex)
             }
             RokidKeyMapper.Action.SELECT -> when (surface) {
                 RokidSurface.PLAYER -> revealOr { activateRail() }
                 RokidSurface.FULLSCREEN -> direct(RokidRailItem.PLAY_PAUSE)
                 RokidSurface.BROWSE -> feed(RokidCommand.FEED_SELECT)
                 RokidSurface.SECTIONS -> RokidDispatch(RokidCommand.SECTIONS_SELECT, true)
+                RokidSurface.OPTIONS -> RokidDispatch(RokidCommand.OPTIONS_SELECT, true, railIndex)
             }
             RokidKeyMapper.Action.BACK ->
                 // Physical BACK always passes through. Rail Back select is PLAYER_BACK.
@@ -234,11 +245,15 @@ class RokidControlsState {
 
     /**
      * Entering the player from a feed starts on play/pause; coming back from
-     * fullscreen keeps the key that entered it. The rail is shown on entry.
+     * fullscreen or the options panel keeps the key that opened it. The rail
+     * is shown on entry.
      */
     fun syncSurface(surface: RokidSurface) {
         if (surface != lastSurface) {
-            if (surface == RokidSurface.PLAYER && lastSurface != RokidSurface.FULLSCREEN) {
+            if (surface == RokidSurface.PLAYER &&
+                lastSurface != RokidSurface.FULLSCREEN &&
+                lastSurface != RokidSurface.OPTIONS
+            ) {
                 railIndex = 0
             }
             railHidden = false
@@ -306,6 +321,7 @@ class RokidControlsState {
             RokidRailItem.SEEK_BACK -> RokidCommand.ACTIVATE_SEEK_BACK
             RokidRailItem.SEEK_FORWARD -> RokidCommand.ACTIVATE_SEEK_FORWARD
             RokidRailItem.FULLSCREEN -> RokidCommand.ACTIVATE_FULLSCREEN
+            RokidRailItem.OPTIONS -> RokidCommand.OPTIONS_OPEN
             RokidRailItem.BACK -> RokidCommand.PLAYER_BACK
         }
     }

@@ -17,7 +17,11 @@ import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
 import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patcher.string
+import app.morphe.patcher.util.proxy.mutableTypes.MutableClass
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
+import app.morphe.patches.all.misc.resources.ResourceType
+import app.morphe.patches.all.misc.resources.resourceLiteral
 import app.morphe.patches.all.misc.resources.resourceMappingPatch
 import app.morphe.patches.youtube.layout.sponsorblock.ControlsOverlayFingerprint
 import app.morphe.patches.youtube.misc.playercontrols.PlayerTopControlsInflateFingerprint
@@ -26,8 +30,11 @@ import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.reference.FieldReference
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.iface.reference.StringReference
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
+import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
 import app.morphe.patches.youtube.interaction.swipecontrols.swipeControlsPatch
 import app.morphe.patches.youtube.layout.player.fullscreen.openVideosFullscreenPatch
 import app.morphe.patches.youtube.layout.player.fullscreen.AdPlayerFullscreenFingerprint
@@ -64,6 +71,28 @@ private const val EXTENSION_CLASS =
 
 private const val CONTROLS_INTERFACE =
     $$"Lapp/morphe/extension/youtube/patches/RokidControlsPatch$NativeControls;"
+
+private const val CAPTIONS_INTERFACE =
+    $$"Lapp/morphe/extension/youtube/patches/RokidControlsPatch$NativeCaptions;"
+
+private const val CAPTION_TRACK_INTERFACE =
+    $$"Lapp/morphe/extension/youtube/patches/RokidControlsPatch$NativeCaptionTrack;"
+
+private fun MutableClass.addPatchMethod(
+    name: String,
+    parameters: List<String>,
+    returnType: String,
+    registers: Int,
+    smali: String,
+) {
+    methods.add(
+        ImmutableMethod(
+            type, name, parameters.map { ImmutableMethodParameter(it, null, null) }, returnType,
+            AccessFlags.PUBLIC.value or AccessFlags.FINAL.value,
+            null, null, MutableMethodImplementation(registers),
+        ).toMutable().apply { addInstructions(0, smali) }
+    )
+}
 
 @Suppress("unused")
 val rokidControlsPatch = bytecodePatch(
@@ -149,6 +178,93 @@ val rokidControlsPatch = bytecodePatch(
                 move-object/from16 v$owner, p0
                 invoke-static { v$owner, v$root }, $EXTENSION_CLASS->setNativeControls(${CONTROLS_INTERFACE}Landroid/view/View;)V
             """)
+        }
+
+        // Captions through YouTube's subtitles controller, the same calls as its
+        // captions menu: track list, shown track, preferred-track selection.
+        val setSubtitleTrack = SetSubtitleTrackFingerprint.method
+        val captionsClass = setSubtitleTrack.definingClass
+        val trackType = setSubtitleTrack.parameterTypes[0].toString()
+        val reasonType = setSubtitleTrack.parameterTypes[1].toString()
+        val preferredReason = mutableClassDefBy(reasonType).methods.single { it.name == "<clinit>" }
+            .implementation!!.instructions.toList().let { instructions ->
+                val name = instructions.indexOfFirst {
+                    ((it as? ReferenceInstruction)?.reference as? StringReference)?.string == "PREFERRED_TRACK"
+                }
+                check(name >= 0) { "PREFERRED_TRACK not found in $reasonType" }
+                val store = instructions.drop(name).first { it.opcode == Opcode.SPUT_OBJECT }
+                (store as ReferenceInstruction).reference as FieldReference
+            }
+        val trackMenu = Fingerprint(
+            definingClass = captionsClass,
+            returnType = "Ljava/util/List;",
+            parameters = listOf(),
+            filters = listOf(resourceLiteral(ResourceType.STRING, "turn_off_subtitles")),
+        ).method
+        val trackIsOff = Fingerprint(
+            definingClass = trackType,
+            returnType = "Z",
+            parameters = listOf(),
+            filters = listOf(string("DISABLE_CAPTIONS_OPTION")),
+        ).method
+        val trackIsAutoTranslate = Fingerprint(
+            definingClass = trackType,
+            returnType = "Z",
+            parameters = listOf(),
+            filters = listOf(string("AUTO_TRANSLATE_CAPTIONS_OPTION")),
+        ).method
+        mutableClassDefBy(trackType).apply {
+            interfaces.add(CAPTION_TRACK_INTERFACE)
+            addPatchMethod("patch_isCaptionsOff", listOf(), "Z", 2, """
+                invoke-virtual { p0 }, $trackIsOff
+                move-result v0
+                return v0
+            """)
+            addPatchMethod("patch_isAutoTranslate", listOf(), "Z", 2, """
+                invoke-virtual { p0 }, $trackIsAutoTranslate
+                move-result v0
+                return v0
+            """)
+        }
+        mutableClassDefBy(captionsClass).apply {
+            val selectTrack = methods.single {
+                it.returnType == "V" && it.parameterTypes.map(Any::toString) == listOf(trackType, reasonType)
+            }
+            // The shown track is the public one; the private field is the last logged selection.
+            val shownTrack = fields.single {
+                it.type == trackType && AccessFlags.PUBLIC.isSet(it.accessFlags) &&
+                    !AccessFlags.STATIC.isSet(it.accessFlags)
+            }
+            interfaces.add(CAPTIONS_INTERFACE)
+            addPatchMethod("patch_getCaptionTracks", listOf(), "Ljava/util/List;", 2, """
+                invoke-virtual { p0 }, $trackMenu
+                move-result-object v0
+                return-object v0
+            """)
+            addPatchMethod("patch_getCaptionTrack", listOf(), "Ljava/lang/Object;", 2, """
+                iget-object v0, p0, $shownTrack
+                return-object v0
+            """)
+            addPatchMethod("patch_setCaptionTrack", listOf("Ljava/lang/Object;"), "V", 3, """
+                check-cast p1, $trackType
+                sget-object v0, $preferredReason
+                invoke-virtual { p0, p1, v0 }, $selectTrack
+                return-void
+            """)
+            // Register right after the super constructor, while p0 surely still holds this.
+            methods.filter { it.name == "<init>" }.forEach { init ->
+                val superCall = init.implementation!!.instructions.indexOfFirst {
+                    it.opcode == Opcode.INVOKE_DIRECT &&
+                        ((it as ReferenceInstruction).reference as MethodReference).let { ref ->
+                            ref.name == "<init>" && ref.definingClass == superclass
+                        }
+                }
+                check(superCall >= 0) { "No super constructor call in $captionsClass" }
+                init.addInstruction(
+                    superCall + 1,
+                    "invoke-static/range { p0 .. p0 }, $EXTENSION_CLASS->setNativeCaptions($CAPTIONS_INTERFACE)V",
+                )
+            }
         }
 
         // MainActivity.dispatchKeyEvent is the Window.Callback entry. It can

@@ -54,9 +54,16 @@ class RokidSectionsState {
 
     companion object {
         /** Follow the selected row inside the actual viewport, including short windows. */
-        fun scrollOffset(index: Int, rowStride: Int, rowHeight: Int, viewport: Int, previous: Int): Int {
-            if (viewport <= 0 || rowStride <= 0 || rowHeight <= 0) return 0
-            val top = index.coerceIn(0, RokidSection.entries.lastIndex) * rowStride
+        fun scrollOffset(
+            index: Int,
+            rowStride: Int,
+            rowHeight: Int,
+            viewport: Int,
+            previous: Int,
+            lastIndex: Int = RokidSection.entries.lastIndex,
+        ): Int {
+            if (viewport <= 0 || rowStride <= 0 || rowHeight <= 0 || lastIndex < 0) return 0
+            val top = index.coerceIn(0, lastIndex) * rowStride
             val bottom = top + rowHeight
             return when {
                 top < previous -> top

@@ -38,6 +38,11 @@ object RokidHudText {
                 RokidHint("●", "press"),
                 RokidHint("◂", "back to feed"),
             )
+            RokidSurface.OPTIONS -> listOf(
+                RokidHint("⇅", "choose"),
+                RokidHint("●", "set"),
+                RokidHint("◂", "close"),
+            )
         }
     }
 

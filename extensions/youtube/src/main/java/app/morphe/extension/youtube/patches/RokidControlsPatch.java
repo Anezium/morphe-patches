@@ -13,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import app.morphe.extension.shared.Logger;
+import app.morphe.extension.youtube.rokid.RokidCaptionsController;
 import app.morphe.extension.youtube.rokid.RokidControlsController;
 import app.morphe.extension.youtube.rokid.RokidPlayPauseController;
 
@@ -28,6 +29,35 @@ public final class RokidControlsPatch {
 
     public static void setNativeControls(NativeControls controls, View root) {
         RokidPlayPauseController.bind(controls, root);
+    }
+
+    /**
+     * YouTube's subtitles controller: the same track list, current track and
+     * selection path as the native captions menu.
+     */
+    public interface NativeCaptions {
+        /** Menu tracks: the "off" option first, then the video's tracks. Null before a video loads. */
+        java.util.List<?> patch_getCaptionTracks();
+
+        /** Track being shown, null or the "off" option when captions are off. */
+        Object patch_getCaptionTrack();
+
+        /** Select a track from {@link #patch_getCaptionTracks()} as a preferred user choice. */
+        void patch_setCaptionTrack(Object track);
+    }
+
+    /** SubtitleTrack. {@code toString()} is its display name. */
+    public interface NativeCaptionTrack {
+        boolean patch_isCaptionsOff();
+
+        boolean patch_isAutoTranslate();
+    }
+
+    /**
+     * Injection point: end of the subtitles controller constructor.
+     */
+    public static void setNativeCaptions(NativeCaptions captions) {
+        RokidCaptionsController.bind(captions);
     }
 
     /**

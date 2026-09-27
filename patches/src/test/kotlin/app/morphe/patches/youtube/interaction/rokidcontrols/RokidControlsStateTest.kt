@@ -63,12 +63,46 @@ class RokidControlsStateTest {
 
     @Test
     fun playerSelectOnBackRailDispatchesPlayerBack() {
-        repeat(4) { state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER) }
+        repeat(5) { state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER) }
         val dispatch = state.dispatch(RokidKeyMapper.Action.SELECT, RokidSurface.PLAYER)
         assertEquals(RokidCommand.PLAYER_BACK, dispatch.command)
         assertEquals(RokidRailItem.BACK, dispatch.railItem)
-        assertEquals(4, dispatch.railIndex)
+        assertEquals(5, dispatch.railIndex)
         assertFalse(dispatch.consume)
+    }
+
+    @Test
+    fun optionsKeyOpensThePanelWithoutPreConsume() {
+        repeat(4) { state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER) }
+        val dispatch = state.dispatch(RokidKeyMapper.Action.SELECT, RokidSurface.PLAYER)
+        assertEquals(RokidCommand.OPTIONS_OPEN, dispatch.command)
+        assertEquals(RokidRailItem.OPTIONS, dispatch.railItem)
+        assertFalse(dispatch.consume)
+    }
+
+    @Test
+    fun optionsPanelOwnsDirectionAndSelectButNotBack() {
+        val expected = mapOf(
+            RokidKeyMapper.Action.PREVIOUS to RokidCommand.OPTIONS_PREVIOUS,
+            RokidKeyMapper.Action.NEXT to RokidCommand.OPTIONS_NEXT,
+            RokidKeyMapper.Action.SELECT to RokidCommand.OPTIONS_SELECT,
+        )
+        expected.forEach { (action, command) ->
+            val dispatch = state.dispatch(action, RokidSurface.OPTIONS)
+            assertEquals(command, dispatch.command)
+            assertTrue(dispatch.consume)
+        }
+        val back = state.dispatch(RokidKeyMapper.Action.BACK, RokidSurface.OPTIONS)
+        assertEquals(RokidCommand.PASS_BACK, back.command)
+        assertFalse(back.consume)
+    }
+
+    @Test
+    fun closingOptionsKeepsTheOptionsKey() {
+        repeat(4) { state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER) }
+        state.syncSurface(RokidSurface.OPTIONS)
+        state.syncSurface(RokidSurface.PLAYER)
+        assertEquals(4, state.railIndex)
     }
 
     @Test

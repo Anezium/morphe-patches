@@ -19,13 +19,14 @@ import android.util.TypedValue
 import android.view.View
 
 /**
- * Glasses player overlay: five icon keys above the hints strip, a seek bar and
+ * Glasses player overlay: six icon keys above the hints strip, a seek bar and
  * time on the bottom edge of the video, and in fullscreen a transient pill.
  * Only the focused key is filled and labelled.
  *
  * Geometry follows the mockup, whose frames are device pixels of the
  * 480 x 640, 240 dpi canvas: an 80 px key is 53.3 dp. Five 80 dp keys would
- * need 400 dp on a 320 dp wide screen.
+ * need 400 dp on a 320 dp wide screen. The options key made six, so keys
+ * shrank to 68 px to keep both side margins.
  */
 class RokidPlayerRailView(context: Context) : View(context) {
     private enum class Mode {
@@ -50,7 +51,7 @@ class RokidPlayerRailView(context: Context) : View(context) {
     private var keysShown = false
     private var fader: ValueAnimator? = null
 
-    private val keySize = px(80f)
+    private val keySize = px(68f)
     private val keyRadius = px(14f)
     private val sideMargin = px(16f)
     private val iconSize = px(30f)
@@ -353,6 +354,7 @@ class RokidPlayerRailView(context: Context) : View(context) {
             RokidRailItem.SEEK_BACK -> SEEK_BACK_ICON
             RokidRailItem.SEEK_FORWARD -> SEEK_FORWARD_ICON
             RokidRailItem.FULLSCREEN -> FULLSCREEN_ICON
+            RokidRailItem.OPTIONS -> OPTIONS_ICON
             RokidRailItem.BACK -> CLOSE_ICON
         }
     }
@@ -363,6 +365,7 @@ class RokidPlayerRailView(context: Context) : View(context) {
             RokidRailItem.SEEK_BACK -> RokidRailLabels.seek(backward = true, available = seekAvailable)
             RokidRailItem.SEEK_FORWARD -> RokidRailLabels.seek(backward = false, available = seekAvailable)
             RokidRailItem.FULLSCREEN -> fullscreenLabel
+            RokidRailItem.OPTIONS -> "Options"
             RokidRailItem.BACK -> "Close"
         }
     }
@@ -423,6 +426,14 @@ class RokidPlayerRailView(context: Context) : View(context) {
             moveTo(20f, 9f); lineTo(20f, 4f); lineTo(15f, 4f)
             moveTo(4f, 15f); lineTo(4f, 20f); lineTo(9f, 20f)
             moveTo(20f, 15f); lineTo(20f, 20f); lineTo(15f, 20f)
+        }
+        val OPTIONS_ICON = Path().apply {
+            moveTo(4f, 6f); lineTo(20f, 6f)
+            moveTo(4f, 12f); lineTo(20f, 12f)
+            moveTo(4f, 18f); lineTo(20f, 18f)
+            addCircle(9f, 6f, 2.2f, Path.Direction.CW)
+            addCircle(15f, 12f, 2.2f, Path.Direction.CW)
+            addCircle(8f, 18f, 2.2f, Path.Direction.CW)
         }
         val CLOSE_ICON = Path().apply {
             moveTo(6f, 6f)

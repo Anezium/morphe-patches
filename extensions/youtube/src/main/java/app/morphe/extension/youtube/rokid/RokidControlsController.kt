@@ -47,6 +47,10 @@ object RokidControlsController {
 
     private val state = RokidControlsState()
     private val sectionsState = RokidSectionsState()
+    private val optionsState = RokidOptionsState()
+    private var optionsView: RokidOptionsView? = null
+    private var captions: RokidCaptionsController.Snapshot? = null
+    private val refreshNow = Runnable { refresh() }
     private var sectionsView: RokidSectionsView? = null
     private var feedCard: RokidFeedCardView? = null
     private var searchView: RokidSearchView? = null
@@ -125,6 +129,9 @@ object RokidControlsController {
         lastRefreshedSurface = null
         state.reset()
         sectionsState.reset()
+        optionsState.close()
+        captions = null
+        mainHandler.removeCallbacks(refreshNow)
         currentSection = RokidSection.HOME
         consumeBackUp = false
         searchPending = false
@@ -237,8 +244,11 @@ object RokidControlsController {
         return consumed
     }
 
-    private fun selectionIndex(surface: RokidSurface): Int =
-        if (surface == RokidSurface.SECTIONS) sectionsState.index else state.railIndex
+    private fun selectionIndex(surface: RokidSurface): Int = when (surface) {
+        RokidSurface.SECTIONS -> sectionsState.index
+        RokidSurface.OPTIONS -> optionsState.index
+        else -> state.railIndex
+    }
 
     private fun handleSectionsBack(activity: Activity, event: KeyEvent, surface: RokidSurface): Boolean {
         if (event.keyCode != KeyEvent.KEYCODE_BACK) return false
@@ -249,6 +259,10 @@ object RokidControlsController {
         }
         if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0) return false
         val command = when {
+            surface == RokidSurface.OPTIONS -> {
+                optionsState.back()
+                "OPTIONS_BACK"
+            }
             surface == RokidSurface.SECTIONS -> {
                 val exit = sectionsState.close()
                 if (exit) {
@@ -266,7 +280,7 @@ object RokidControlsController {
         }
         consumeBackUp = true
         refresh()
-        logKey(event, RokidKeyBypass.Reason.NONE, surface, sectionsState.index, command, true)
+        logKey(event, RokidKeyBypass.Reason.NONE, surface, selectionIndex(surface), command, true)
         return true
     }
 
@@ -349,11 +363,14 @@ object RokidControlsController {
         if (rail == null) {
             rail = RokidPlayerRailView(activity).also { it.layoutParams = fullLayoutParams() }
         }
+        if (optionsView == null) {
+            optionsView = RokidOptionsView(activity).also { it.layoutParams = fullLayoutParams() }
+        }
     }
 
     /** HUD bands stay above the player's black mask on every reattach. */
     private fun addOverlaysTo(contentRoot: ViewGroup) {
-        listOfNotNull(ring, feedCard, rail, sectionsView, searchView, hud).forEach { view ->
+        listOfNotNull(ring, feedCard, rail, optionsView, sectionsView, searchView, hud).forEach { view ->
             val params = view.layoutParams ?: fullLayoutParams()
             (view.parent as? ViewGroup)?.removeView(view)
             contentRoot.addView(view, params)
@@ -361,7 +378,8 @@ object RokidControlsController {
     }
 
     private fun dropOverlays() {
-        val views = listOfNotNull(ring, hud, rail, sectionsView, feedCard, searchView)
+        val views = listOfNotNull(ring, hud, rail, optionsView, sectionsView, feedCard, searchView)
+        optionsView = null
         feedCard?.hideCard()
         feedCard = null
         searchView?.hideSearch()
@@ -418,6 +436,7 @@ object RokidControlsController {
         val type = PlayerType.current
         return when {
             type == PlayerType.WATCH_WHILE_FULLSCREEN -> RokidSurface.FULLSCREEN
+            type.isMaximizedOrFullscreen() && optionsState.isOpen -> RokidSurface.OPTIONS
             type.isMaximizedOrFullscreen() -> RokidSurface.PLAYER
             sectionsState.isOpen -> RokidSurface.SECTIONS
             else -> RokidSurface.BROWSE
@@ -431,6 +450,10 @@ object RokidControlsController {
         } else {
             sectionsView?.hideSections()
             if (surface != RokidSurface.BROWSE) sectionsState.close()
+        }
+        if (surface != RokidSurface.OPTIONS) {
+            optionsState.close()
+            optionsView?.hideOptions()
         }
         state.syncSurface(surface)
         if (surface != lastRefreshedSurface) {
@@ -462,7 +485,7 @@ object RokidControlsController {
                 pillUntil = SystemClock.uptimeMillis() + PILL_MS
                 mainHandler.postDelayed(endPill, PILL_MS)
             }
-            RokidSurface.BROWSE, RokidSurface.SECTIONS -> pillUntil = 0L
+            RokidSurface.BROWSE, RokidSurface.SECTIONS, RokidSurface.OPTIONS -> pillUntil = 0L
         }
     }
 
@@ -507,7 +530,11 @@ object RokidControlsController {
                     hints = RokidHudText.hints(surface, playing),
                 )
                 hudView.setFaded(
-                    if (surface == RokidSurface.FULLSCREEN) !pillVisible() else state.railHidden,
+                    when (surface) {
+                        RokidSurface.FULLSCREEN -> !pillVisible()
+                        RokidSurface.OPTIONS -> false
+                        else -> state.railHidden
+                    },
                 )
             }
             return
@@ -585,15 +612,19 @@ object RokidControlsController {
             view.showFullscreen(pillVisible(), playing, time, length)
             return
         }
+        val box = activity?.let { videoBoxIn(it, view) }
+        if (surface == RokidSurface.OPTIONS) {
+            optionsView?.showOptions(optionsTitle(), optionRows(), optionsState.index, box?.bottom ?: (view.height / 3))
+        }
         view.showRail(
             index = state.railIndex,
-            keysVisible = !state.railHidden,
+            keysVisible = !state.railHidden && surface == RokidSurface.PLAYER,
             playing = playing,
             playPauseLabel = RokidRailLabels.playPause(playCanActivate, videoState?.name),
             playPauseAvailable = playCanActivate,
             seekAvailable = seekAvailable,
             fullscreenLabel = "Fullscreen",
-            videoBox = activity?.let { videoBoxIn(it, view) },
+            videoBox = box,
             metadataBottom = activity?.let { watchMetadataBottomIn(it, view) },
             timeMs = time,
             lengthMs = length,
@@ -717,7 +748,82 @@ object RokidControlsController {
             RokidCommand.ACTIVATE_SEEK_FORWARD -> seekRelative(10_000L)
             RokidCommand.ACTIVATE_FULLSCREEN -> toggleFullscreen()
             RokidCommand.PLAYER_BACK -> dispatchActualBack(activity)
+            RokidCommand.OPTIONS_OPEN -> { optionsState.open(); true }
+            RokidCommand.OPTIONS_PREVIOUS -> { optionsState.move(-1, optionRows().size); true }
+            RokidCommand.OPTIONS_NEXT -> { optionsState.move(1, optionRows().size); true }
+            RokidCommand.OPTIONS_SELECT -> { selectOption(); true }
         }
+    }
+
+    private fun optionsTitle(): String = when (optionsState.page) {
+        RokidOptionsPage.MAIN -> "Options"
+        RokidOptionsPage.SPEED -> "Playback speed"
+        RokidOptionsPage.LANGUAGE -> "Subtitles"
+    }
+
+    /** Rows of the open page. Also refreshes the captions snapshot that selections apply to. */
+    private fun optionRows(): List<RokidOptionRow> {
+        val snapshot = RokidCaptionsController.snapshot().also { captions = it }
+        val choices = snapshot?.choices.orEmpty()
+        val current = snapshot?.current ?: -1
+        val hasTracks = RokidCaptionChoices.hasTracks(choices)
+        val speed = VideoInformation.getPlaybackSpeed()
+        return when (optionsState.page) {
+            RokidOptionsPage.MAIN -> listOf(
+                RokidOptionRow("Speed", RokidPlaybackSpeeds.label(speed)),
+                RokidOptionRow(
+                    "Subtitles",
+                    when {
+                        !hasTracks -> "None"
+                        RokidCaptionChoices.isOn(choices, current) -> "On"
+                        else -> "Off"
+                    },
+                    enabled = hasTracks,
+                ),
+                RokidOptionRow("Language", RokidCaptionChoices.languageSummary(choices, current), enabled = hasTracks),
+            )
+            RokidOptionsPage.SPEED -> {
+                val active = RokidPlaybackSpeeds.nearestIndex(speed)
+                RokidPlaybackSpeeds.values.mapIndexed { i, value ->
+                    RokidOptionRow(RokidPlaybackSpeeds.label(value), current = i == active)
+                }
+            }
+            RokidOptionsPage.LANGUAGE -> choices.mapIndexed { i, choice ->
+                RokidOptionRow(choice.label, current = i == current)
+            }
+        }
+    }
+
+    private fun selectOption() {
+        optionRows()
+        val snapshot = captions
+        when (optionsState.page) {
+            RokidOptionsPage.MAIN -> when (optionsState.selectedOption) {
+                RokidOption.SPEED -> optionsState.enter(
+                    RokidOptionsPage.SPEED,
+                    RokidPlaybackSpeeds.nearestIndex(VideoInformation.getPlaybackSpeed()),
+                )
+                RokidOption.CAPTIONS -> if (snapshot == null || !RokidCaptionsController.toggle(snapshot)) {
+                    Logger.printDebug { "Rokid captions: nothing to toggle" }
+                }
+                RokidOption.LANGUAGE -> if (snapshot != null && RokidCaptionChoices.hasTracks(snapshot.choices)) {
+                    optionsState.enter(RokidOptionsPage.LANGUAGE, snapshot.current)
+                }
+            }
+            RokidOptionsPage.SPEED -> {
+                RokidPlaybackSpeeds.values.getOrNull(optionsState.index)?.let {
+                    VideoInformation.changePlaybackSpeed(it)
+                }
+                optionsState.back()
+            }
+            RokidOptionsPage.LANGUAGE -> {
+                if (snapshot != null) RokidCaptionsController.select(snapshot, optionsState.index)
+                optionsState.back()
+            }
+        }
+        // Track and speed changes land after the call; repaint once they have.
+        mainHandler.removeCallbacks(refreshNow)
+        mainHandler.postDelayed(refreshNow, 400L)
     }
 
     private fun seekRelative(offsetMs: Long): Boolean {
