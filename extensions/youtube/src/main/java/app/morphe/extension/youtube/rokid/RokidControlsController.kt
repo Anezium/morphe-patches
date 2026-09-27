@@ -99,6 +99,7 @@ object RokidControlsController {
             return
         }
         bindActivity(activity)
+        RokidRingController.attach(activity)
         ensureOverlays(activity)
         addOverlaysTo(contentRoot)
         bindChrome(activity)
@@ -199,6 +200,7 @@ object RokidControlsController {
             return false
         }
         Utils.verifyOnMainThread()
+        if (RokidRingController.handleKeyEvent(activity, event)) return true
         val surface = currentSurface()
         val bypass = classifyBypass(activity)
         if (bypass != RokidKeyBypass.Reason.NONE) {
@@ -444,6 +446,7 @@ object RokidControlsController {
     }
 
     private fun refresh() {
+        RokidRingController.refresh()
         val surface = currentSurface()
         if (surface == RokidSurface.SECTIONS) {
             sectionsView?.showAt(sectionsState.index)
