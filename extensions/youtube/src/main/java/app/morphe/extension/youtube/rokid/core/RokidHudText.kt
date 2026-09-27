@@ -16,8 +16,13 @@ data class RokidHint(val glyph: String, val label: String)
  * Text of the glasses HUD, per surface, as in the glasses mode mockup.
  */
 object RokidHudText {
-    fun hints(surface: RokidSurface): List<RokidHint> {
+    fun hints(surface: RokidSurface, playing: Boolean = true): List<RokidHint> {
         return when (surface) {
+            RokidSurface.FULLSCREEN -> listOf(
+                RokidHint("●", if (playing) "pause" else "play"),
+                RokidHint("⇄", "seek 10 s"),
+                RokidHint("◂", "leave"),
+            )
             RokidSurface.BROWSE -> listOf(
                 RokidHint("⇅", "next / prev"),
                 RokidHint("●", "open"),

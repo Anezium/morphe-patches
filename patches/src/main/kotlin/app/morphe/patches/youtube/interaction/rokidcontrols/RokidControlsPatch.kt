@@ -8,12 +8,29 @@
 package app.morphe.patches.youtube.interaction.rokidcontrols
 
 import app.morphe.patcher.patch.ApkFileType
+import app.morphe.patcher.Fingerprint
+import app.morphe.patcher.methodCall
 import app.morphe.patcher.patch.AppTarget
 import app.morphe.patcher.patch.Compatibility
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
+import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
 import app.morphe.patcher.patch.bytecodePatch
+import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
+import app.morphe.patches.all.misc.resources.resourceMappingPatch
+import app.morphe.patches.youtube.layout.sponsorblock.ControlsOverlayFingerprint
+import app.morphe.patches.youtube.misc.playercontrols.PlayerTopControlsInflateFingerprint
+import com.android.tools.smali.dexlib2.AccessFlags
+import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
+import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import app.morphe.patches.youtube.interaction.swipecontrols.swipeControlsPatch
 import app.morphe.patches.youtube.layout.player.fullscreen.openVideosFullscreenPatch
+import app.morphe.patches.youtube.layout.player.fullscreen.AdPlayerFullscreenFingerprint
 import app.morphe.patches.youtube.misc.engagement.engagementPanelHookPatch
 import app.morphe.patches.youtube.misc.playertype.playerTypeHookPatch
 import app.morphe.patches.youtube.shared.YouTubeMainActivityDispatchKeyEventFingerprint
@@ -45,6 +62,9 @@ private val ROKID_YOUTUBE_COMPATIBILITY = Compatibility(
 private const val EXTENSION_CLASS =
     "Lapp/morphe/extension/youtube/patches/RokidControlsPatch;"
 
+private const val CONTROLS_INTERFACE =
+    $$"Lapp/morphe/extension/youtube/patches/RokidControlsPatch$NativeControls;"
+
 @Suppress("unused")
 val rokidControlsPatch = bytecodePatch(
     name = "Rokid controls",
@@ -59,6 +79,7 @@ val rokidControlsPatch = bytecodePatch(
         openVideosFullscreenPatch,
         playerTypeHookPatch,
         engagementPanelHookPatch,
+        resourceMappingPatch,
     )
 
     compatibleWith(ROKID_YOUTUBE_COMPATIBILITY)
@@ -68,6 +89,67 @@ val rokidControlsPatch = bytecodePatch(
         videoTimeHook(EXTENSION_CLASS, "onVideoTime")
         onCreateHook(EXTENSION_CLASS, "onPlayerInitialized")
         hookVideoId("$EXTENSION_CLASS->onVideoId(Ljava/lang/String;)V")
+
+        // The native fullscreen button requests landscape first. Its existing
+        // same-orientation branch enters fullscreen without rotating the HUD.
+        val fullscreenClass = AdPlayerFullscreenFingerprint.instructionMatches.last().getMethodCalled().definingClass
+        val enterWrapper = mutableClassDefBy(fullscreenClass).methods.single { it.name == "patch_enterFullscreen" }
+        val enterMethod = enterWrapper.getInstruction<ReferenceInstruction>(0).reference as MethodReference
+        val portraitEnter = Fingerprint(
+            definingClass = fullscreenClass,
+            name = enterMethod.name,
+            parameters = listOf(),
+            returnType = "V",
+            filters = listOf(methodCall(
+                definingClass = fullscreenClass,
+                opcode = Opcode.INVOKE_DIRECT,
+                parameters = listOf("Z"),
+                returnType = "V",
+            )),
+        ).instructionMatches.single().getMethodCalled()
+        mutableClassDefBy(fullscreenClass).apply {
+            methods.remove(enterWrapper)
+            methods.add(ImmutableMethod(
+                type, enterWrapper.name, listOf(), "V", enterWrapper.accessFlags,
+                null, null, MutableMethodImplementation(2),
+            ).toMutable().apply {
+                addInstructions(0, """
+                    const/4 v0, 0x0
+                    invoke-direct { p0, v0 }, $portraitEnter
+                    return-void
+                """)
+            })
+        }
+
+        // Let YouTube initialize its controller fields and listeners together with
+        // the views. Inflating its ViewStubs directly leaves native ownership broken.
+        val initializeControls = PlayerTopControlsInflateFingerprint.method
+        val overlay = ControlsOverlayFingerprint
+        check(overlay.method.definingClass == initializeControls.definingClass)
+        mutableClassDefBy(initializeControls.definingClass).apply {
+            interfaces.add(CONTROLS_INTERFACE)
+            methods.add(
+                ImmutableMethod(
+                    type, "patch_initializeControls", listOf(), "V",
+                    AccessFlags.PUBLIC.value or AccessFlags.FINAL.value,
+                    null, null, MutableMethodImplementation(1),
+                ).toMutable().apply {
+                    addInstructions(0, """
+                        invoke-virtual { p0 }, $initializeControls
+                        return-void
+                    """)
+                }
+            )
+        }
+        overlay.method.apply {
+            val index = overlay.instructionMatches.last().index
+            val root = getInstruction<OneRegisterInstruction>(index).registerA
+            val owner = findFreeRegister(index + 1, root)
+            addInstructions(index + 1, """
+                move-object/from16 v$owner, p0
+                invoke-static { v$owner, v$root }, $EXTENSION_CLASS->setNativeControls(${CONTROLS_INTERFACE}Landroid/view/View;)V
+            """)
+        }
 
         // MainActivity.dispatchKeyEvent is the Window.Callback entry. It can
         // consume ACTION_DOWN before invoke-super, so the swipe host override

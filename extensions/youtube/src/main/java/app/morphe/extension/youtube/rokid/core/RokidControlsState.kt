@@ -7,12 +7,17 @@
 
 package app.morphe.extension.youtube.rokid
 
+import java.util.Locale
+
 /**
  * Pure Rokid HUD state. Runtime consumes a key only after the matching action succeeds.
  */
 enum class RokidSurface {
     BROWSE,
     PLAYER,
+
+    /** PlayerType WATCH_WHILE_FULLSCREEN: no rail, swipes seek and tap toggles playback. */
+    FULLSCREEN,
 }
 
 enum class RokidRailItem {
@@ -31,6 +36,9 @@ enum class RokidCommand {
     FEED_SELECT,
     PASS_BACK,
     RAIL_MOVED,
+
+    /** The rail had faded out: the key only brings it back. */
+    RAIL_REVEAL,
     ACTIVATE_PLAY_PAUSE,
     ACTIVATE_SEEK_BACK,
     ACTIVATE_SEEK_FORWARD,
@@ -137,6 +145,35 @@ object RokidRailLabels {
         return if (controllerTimeMs >= 0L) controllerTimeMs else identityMatchedCachedTimeMs
     }
 
+    /** "m:ss", or "h:mm:ss" past an hour. Negative means unknown. */
+    fun clock(timeMs: Long): String {
+        if (timeMs < 0L) {
+            return "--:--"
+        }
+        val totalSeconds = timeMs / 1000L
+        val hours = totalSeconds / 3600L
+        val minutes = (totalSeconds % 3600L) / 60L
+        val seconds = totalSeconds % 60L
+        return if (hours > 0L) {
+            String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.ROOT, "%d:%02d", minutes, seconds)
+        }
+    }
+
+    /** "12:04 / 30:23", or the position alone while the length is unknown. */
+    fun timeLabel(timeMs: Long, lengthMs: Long): String {
+        return if (lengthMs > 0L) "${clock(timeMs)} / ${clock(lengthMs)}" else clock(timeMs)
+    }
+
+    /** Played part of the seek bar, 0 while either value is unknown. */
+    fun playedFraction(timeMs: Long, lengthMs: Long): Float {
+        if (timeMs <= 0L || lengthMs <= 0L) {
+            return 0f
+        }
+        return (timeMs.toFloat() / lengthMs.toFloat()).coerceIn(0f, 1f)
+    }
+
     fun clampSeekTarget(videoTimeMs: Long, offsetMs: Long, videoLengthMs: Long): Long {
         val unclamped = videoTimeMs + offsetMs
         return when {
@@ -151,6 +188,10 @@ class RokidControlsState {
     var railIndex: Int = 0
         private set
 
+    /** Rail faded out after a quiet period; the next rail key reveals it. */
+    var railHidden: Boolean = false
+        private set
+
     private var lastSurface: RokidSurface? = null
 
     fun dispatch(action: RokidKeyMapper.Action, surface: RokidSurface): RokidDispatch {
@@ -161,29 +202,52 @@ class RokidControlsState {
                 RokidDispatch(RokidCommand.IGNORE, consume = false, railIndex = railIndex)
             RokidKeyMapper.Action.DUPLICATE ->
                 RokidDispatch(RokidCommand.CONSUME, consume = true, railIndex = railIndex)
-            RokidKeyMapper.Action.PREVIOUS ->
-                if (surface == RokidSurface.PLAYER) moveRail(-1) else feed(RokidCommand.FEED_PREVIOUS)
-            RokidKeyMapper.Action.NEXT ->
-                if (surface == RokidSurface.PLAYER) moveRail(1) else feed(RokidCommand.FEED_NEXT)
-            RokidKeyMapper.Action.SELECT ->
-                if (surface == RokidSurface.PLAYER) activateRail() else feed(RokidCommand.FEED_SELECT)
+            RokidKeyMapper.Action.PREVIOUS -> when (surface) {
+                RokidSurface.PLAYER -> revealOr { moveRail(-1) }
+                RokidSurface.FULLSCREEN -> direct(RokidRailItem.SEEK_BACK)
+                RokidSurface.BROWSE -> feed(RokidCommand.FEED_PREVIOUS)
+            }
+            RokidKeyMapper.Action.NEXT -> when (surface) {
+                RokidSurface.PLAYER -> revealOr { moveRail(1) }
+                RokidSurface.FULLSCREEN -> direct(RokidRailItem.SEEK_FORWARD)
+                RokidSurface.BROWSE -> feed(RokidCommand.FEED_NEXT)
+            }
+            RokidKeyMapper.Action.SELECT -> when (surface) {
+                RokidSurface.PLAYER -> revealOr { activateRail() }
+                RokidSurface.FULLSCREEN -> direct(RokidRailItem.PLAY_PAUSE)
+                RokidSurface.BROWSE -> feed(RokidCommand.FEED_SELECT)
+            }
             RokidKeyMapper.Action.BACK ->
                 // Physical BACK always passes through. Rail Back select is PLAYER_BACK.
+                // In fullscreen YouTube leaves fullscreen on its own Back.
                 RokidDispatch(RokidCommand.PASS_BACK, consume = false, railIndex = railIndex)
         }
     }
 
+    /**
+     * Entering the player from a feed starts on play/pause; coming back from
+     * fullscreen keeps the key that entered it. The rail is shown on entry.
+     */
     fun syncSurface(surface: RokidSurface) {
         if (surface != lastSurface) {
-            if (surface == RokidSurface.PLAYER) {
+            if (surface == RokidSurface.PLAYER && lastSurface != RokidSurface.FULLSCREEN) {
                 railIndex = 0
             }
+            railHidden = false
             lastSurface = surface
+        }
+    }
+
+    /** Quiet period elapsed. Only the player rail fades. */
+    fun hideRail() {
+        if (lastSurface == RokidSurface.PLAYER) {
+            railHidden = true
         }
     }
 
     fun reset() {
         railIndex = 0
+        railHidden = false
         lastSurface = null
     }
 
@@ -193,6 +257,24 @@ class RokidControlsState {
 
     private fun feed(command: RokidCommand) =
         RokidDispatch(command, consume = false, railIndex = railIndex)
+
+    private fun revealOr(onVisible: () -> RokidDispatch): RokidDispatch {
+        if (!railHidden) {
+            return onVisible()
+        }
+        railHidden = false
+        return RokidDispatch(
+            RokidCommand.RAIL_REVEAL,
+            consume = true,
+            railIndex = railIndex,
+            railItem = RokidRailItem.entries[railIndex],
+        )
+    }
+
+    /** Fullscreen shortcut: the command of [item] without walking the rail. */
+    private fun direct(item: RokidRailItem): RokidDispatch {
+        return RokidDispatch(commandFor(item), consume = false, railIndex = railIndex, railItem = item)
+    }
 
     private fun moveRail(delta: Int): RokidDispatch {
         val count = RokidRailItem.entries.size
@@ -207,13 +289,16 @@ class RokidControlsState {
 
     private fun activateRail(): RokidDispatch {
         val item = RokidRailItem.entries[railIndex]
-        val command = when (item) {
+        return RokidDispatch(commandFor(item), consume = false, railIndex = railIndex, railItem = item)
+    }
+
+    private fun commandFor(item: RokidRailItem): RokidCommand {
+        return when (item) {
             RokidRailItem.PLAY_PAUSE -> RokidCommand.ACTIVATE_PLAY_PAUSE
             RokidRailItem.SEEK_BACK -> RokidCommand.ACTIVATE_SEEK_BACK
             RokidRailItem.SEEK_FORWARD -> RokidCommand.ACTIVATE_SEEK_FORWARD
             RokidRailItem.FULLSCREEN -> RokidCommand.ACTIVATE_FULLSCREEN
             RokidRailItem.BACK -> RokidCommand.PLAYER_BACK
         }
-        return RokidDispatch(command, consume = false, railIndex = railIndex, railItem = item)
     }
 }

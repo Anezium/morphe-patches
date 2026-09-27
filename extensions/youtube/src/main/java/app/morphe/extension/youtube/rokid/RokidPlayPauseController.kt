@@ -10,28 +10,44 @@ package app.morphe.extension.youtube.rokid
 import android.app.Activity
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewStub
 import app.morphe.extension.shared.Logger
 import app.morphe.extension.shared.ResourceType
 import app.morphe.extension.shared.ResourceUtils
 import app.morphe.extension.shared.ResourceUtils.getIdentifier
 import app.morphe.extension.shared.Utils
+import app.morphe.extension.youtube.patches.RokidControlsPatch.NativeControls
+import java.lang.ref.WeakReference
 
 /**
  * App-local play/pause: click the real player control, never a system media key.
- * Auto-hidden overlay (GONE) is still a valid target. Missing/uninflated controls are not.
+ * YouTube owns lazy initialization of its controls and their listeners.
  */
 object RokidPlayPauseController {
+    private var nativeControls = WeakReference<NativeControls>(null)
+    private var nativeRoot = WeakReference<View>(null)
+
+    @JvmStatic
+    fun bind(controls: NativeControls, root: View) {
+        nativeControls = WeakReference(controls)
+        nativeRoot = WeakReference(root)
+    }
+
+    private fun boundControls(activity: Activity): NativeControls? {
+        val root = nativeRoot.get() ?: return null
+        return if (root.isAttachedToWindow && root.rootView === activity.window.decorView) {
+            nativeControls.get()
+        } else null
+    }
+
     fun isAttached(activity: Activity): Boolean {
         return findPlayPauseView(activity, log = false) != null
     }
 
     /**
-     * True when the real play/pause control is attached, or the overlay stub
-     * can still be inflated. VideoState alone is not a clickable target.
+     * True when a real button or the native initializer belongs to this activity.
      */
     fun canActivate(activity: Activity): Boolean {
-        return isAttached(activity) || hasInflatableStub(activity)
+        return isAttached(activity) || boundControls(activity) != null
     }
 
     fun isAvailable(activity: Activity): Boolean {
@@ -40,32 +56,28 @@ object RokidPlayPauseController {
 
     fun tryPerformClick(activity: Activity): Boolean {
         Utils.verifyOnMainThread()
-        ensureControlsInflated(activity)
+        boundControls(activity)?.patch_initializeControls()
         val view = findPlayPauseView(activity, log = true) ?: return false
-        revealForClick(view)
-        if (!view.isShown) {
-            Logger.printDebug { "Rokid play/pause: control still not shown after reveal" }
-            return false
+        val hidden = revealForClick(view)
+        return try {
+            view.isShown && view.performClick()
+        } finally {
+            hidden.forEach { (node, visibility) -> node.visibility = visibility }
         }
-        val clicked = view.performClick()
-        if (!clicked) {
-            Logger.printDebug { "Rokid play/pause: performClick returned false" }
-        }
-        return clicked
     }
 
     /**
      * YouTube's pause listener ignores clicks unless the overlay is shown.
      * Unhide the attached chain for the click; do not tap the video surface.
      */
-    private fun revealForClick(target: View) {
+    private fun revealForClick(target: View): List<Pair<View, Int>> {
         if (target.isShown) {
-            return
+            return emptyList()
         }
-        val hidden = mutableListOf<View>()
+        val hidden = mutableListOf<Pair<View, Int>>()
         var current: View? = target
         while (current != null && !current.isShown) {
-            hidden.add(current)
+            hidden.add(current to current.visibility)
             val parent = current.parent
             current = parent as? View
             if (current != null && current.id == android.R.id.content) {
@@ -73,41 +85,12 @@ object RokidPlayPauseController {
             }
         }
         for (i in hidden.indices.reversed()) {
-            val node = hidden[i]
+            val node = hidden[i].first
             if (node.visibility != View.VISIBLE) {
                 node.visibility = View.VISIBLE
             }
         }
-        Logger.printDebug { "Rokid play/pause: revealed overlay for click isShown=${target.isShown}" }
-    }
-
-    /**
-     * ViewStub is not inflated until the overlay has been shown once.
-     * Do not tap the player surface to reveal it: that can toggle playback.
-     */
-    private fun hasInflatableStub(activity: Activity): Boolean {
-        val stubId = resolveId(activity, "youtube_controls_button_group_layout_stub")
-        if (stubId == 0) {
-            return false
-        }
-        return activity.findViewById<View>(stubId) is ViewStub
-    }
-
-    private fun ensureControlsInflated(activity: Activity) {
-        if (findPlayPauseView(activity, log = false) != null) {
-            return
-        }
-        val stubId = resolveId(activity, "youtube_controls_button_group_layout_stub")
-        if (stubId == 0) {
-            return
-        }
-        val stub = activity.findViewById<View>(stubId) as? ViewStub ?: return
-        try {
-            stub.inflate()
-            Logger.printDebug { "Rokid play/pause: inflated controls stub" }
-        } catch (ex: Exception) {
-            Logger.printException({ "Rokid play/pause: stub inflate failed" }, ex)
-        }
+        return hidden
     }
 
     /**
@@ -125,7 +108,9 @@ object RokidPlayPauseController {
             }
             return null
         }
-        val parent = activity.findViewById<ViewGroup>(parentId)
+        val root = nativeRoot.get()?.takeIf { it.rootView === activity.window.decorView }
+            ?: activity.window.decorView
+        val parent = root.findViewById<ViewGroup>(parentId)
         if (parent == null) {
             if (log) {
                 Logger.printDebug { "Rokid play/pause: controls_button_group_layout not attached" }

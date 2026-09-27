@@ -227,4 +227,101 @@ class RokidControlsStateTest {
         assertEquals(RokidCommand.FEED_NEXT, dispatch.command)
         assertFalse(dispatch.consume)
     }
+
+    @Test
+    fun fullscreenSwipesSeekWithoutMovingTheRail() {
+        repeat(3) { state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER) }
+        val forward = state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.FULLSCREEN)
+        assertEquals(RokidCommand.ACTIVATE_SEEK_FORWARD, forward.command)
+        assertEquals(RokidRailItem.SEEK_FORWARD, forward.railItem)
+        assertFalse(forward.consume)
+        val back = state.dispatch(RokidKeyMapper.Action.PREVIOUS, RokidSurface.FULLSCREEN)
+        assertEquals(RokidCommand.ACTIVATE_SEEK_BACK, back.command)
+        assertEquals(3, state.railIndex)
+    }
+
+    @Test
+    fun fullscreenTapTogglesPlayback() {
+        val dispatch = state.dispatch(RokidKeyMapper.Action.SELECT, RokidSurface.FULLSCREEN)
+        assertEquals(RokidCommand.ACTIVATE_PLAY_PAUSE, dispatch.command)
+        assertFalse(dispatch.consume)
+    }
+
+    @Test
+    fun fullscreenBackPassesThrough() {
+        val dispatch = state.dispatch(RokidKeyMapper.Action.BACK, RokidSurface.FULLSCREEN)
+        assertEquals(RokidCommand.PASS_BACK, dispatch.command)
+        assertFalse(dispatch.consume)
+    }
+
+    @Test
+    fun leavingFullscreenKeepsTheFullscreenKey() {
+        repeat(3) { state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER) }
+        state.syncSurface(RokidSurface.FULLSCREEN)
+        state.syncSurface(RokidSurface.PLAYER)
+        assertEquals(3, state.railIndex)
+        state.syncSurface(RokidSurface.BROWSE)
+        state.syncSurface(RokidSurface.PLAYER)
+        assertEquals(0, state.railIndex)
+    }
+
+    @Test
+    fun hiddenRailKeyOnlyRevealsIt() {
+        state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER)
+        state.hideRail()
+        assertTrue(state.railHidden)
+        val reveal = state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER)
+        assertEquals(RokidCommand.RAIL_REVEAL, reveal.command)
+        assertTrue(reveal.consume)
+        assertEquals(1, reveal.railIndex)
+        assertFalse(state.railHidden)
+        val move = state.dispatch(RokidKeyMapper.Action.NEXT, RokidSurface.PLAYER)
+        assertEquals(RokidCommand.RAIL_MOVED, move.command)
+        assertEquals(2, move.railIndex)
+    }
+
+    @Test
+    fun hiddenRailSelectDoesNotActivate() {
+        state.syncSurface(RokidSurface.PLAYER)
+        state.hideRail()
+        val reveal = state.dispatch(RokidKeyMapper.Action.SELECT, RokidSurface.PLAYER)
+        assertEquals(RokidCommand.RAIL_REVEAL, reveal.command)
+        val press = state.dispatch(RokidKeyMapper.Action.SELECT, RokidSurface.PLAYER)
+        assertEquals(RokidCommand.ACTIVATE_PLAY_PAUSE, press.command)
+    }
+
+    @Test
+    fun hiddenRailStillLetsBackThrough() {
+        state.syncSurface(RokidSurface.PLAYER)
+        state.hideRail()
+        val dispatch = state.dispatch(RokidKeyMapper.Action.BACK, RokidSurface.PLAYER)
+        assertEquals(RokidCommand.PASS_BACK, dispatch.command)
+        assertFalse(dispatch.consume)
+        assertTrue(state.railHidden)
+    }
+
+    @Test
+    fun onlyThePlayerRailHides() {
+        state.syncSurface(RokidSurface.BROWSE)
+        state.hideRail()
+        assertFalse(state.railHidden)
+        state.syncSurface(RokidSurface.PLAYER)
+        state.hideRail()
+        state.syncSurface(RokidSurface.FULLSCREEN)
+        assertFalse(state.railHidden)
+    }
+
+    @Test
+    fun clockAndSeekBarHelpers() {
+        assertEquals("12:04", RokidRailLabels.clock(724_000L))
+        assertEquals("0:05", RokidRailLabels.clock(5_900L))
+        assertEquals("1:02:03", RokidRailLabels.clock(3_723_000L))
+        assertEquals("--:--", RokidRailLabels.clock(-1L))
+        assertEquals("12:04 / 30:23", RokidRailLabels.timeLabel(724_000L, 1_823_000L))
+        assertEquals("0:10", RokidRailLabels.timeLabel(10_000L, 0L))
+        assertEquals(0.5f, RokidRailLabels.playedFraction(30_000L, 60_000L), 0.0001f)
+        assertEquals(1f, RokidRailLabels.playedFraction(90_000L, 60_000L), 0.0001f)
+        assertEquals(0f, RokidRailLabels.playedFraction(-1L, 60_000L), 0.0001f)
+        assertEquals(0f, RokidRailLabels.playedFraction(30_000L, 0L), 0.0001f)
+    }
 }

@@ -22,6 +22,9 @@ object RokidFeedScope {
 
     val containerNames = listOf(RESULTS, LOADING_LAYOUT, PANE_FRAGMENT_CONTENTS)
 
+    /** Watch-page video, first shown match wins. The seek bar sits on its bottom edge. */
+    val playerViewNames = listOf("player_view", "watch_player")
+
     /**
      * Chrome set GONE in glasses mode, from the 21.04 home tree (dumpsys):
      * top bar, tab bar and the filter chips bar. The tab bar's avatar keeps
@@ -35,6 +38,7 @@ object RokidFeedScope {
         "bottom_bar_container",
         "pivot_bar",
         "pivot_bar_thumbnail",
+        "controls_layout",
     )
 
     fun isResultsContainer(entryName: String): Boolean {

@@ -8,7 +8,8 @@
 package app.morphe.extension.youtube.rokid
 
 import android.app.Activity
-import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
@@ -39,8 +40,18 @@ import java.lang.ref.WeakReference
 object RokidControlsController {
     /** Room above the snapped card for the 3 dp ring and its 3 dp offset. */
     private const val FEED_RING_CLEARANCE_DP = 6f
+    private const val RAIL_IDLE_MS = 3_000L
+    private const val PILL_MS = 2_000L
 
     private val state = RokidControlsState()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val hideRailAfterIdle = Runnable {
+        state.hideRail()
+        refresh()
+    }
+    private val endPill = Runnable { refresh() }
+    private var pillUntil = 0L
+    private var lastRefreshedSurface: RokidSurface? = null
     private var rail: RokidPlayerRailView? = null
     private var ring: RokidFocusRingView? = null
     private var hud: RokidHudView? = null
@@ -92,6 +103,10 @@ object RokidControlsController {
         mutatePlaybackCache { RokidRailLabels.resetPlaybackCache() }
         playerRailArmed = false
         consumeMatchingKeyUp = false
+        mainHandler.removeCallbacks(hideRailAfterIdle)
+        mainHandler.removeCallbacks(endPill)
+        pillUntil = 0L
+        lastRefreshedSurface = null
         state.reset()
         RokidKeyMapper.resetDebounce()
         unbindObservers()
@@ -182,6 +197,9 @@ object RokidControlsController {
             event.action == KeyEvent.ACTION_DOWN &&
                 consumed &&
                 RokidKeyMapper.isDirectionOrSelect(event.keyCode)
+        if (event.action == KeyEvent.ACTION_DOWN && RokidKeyMapper.isDirectionOrSelect(event.keyCode)) {
+            restartIdleTimers(currentSurface())
+        }
         refresh()
         logKey(
             event,
@@ -210,13 +228,13 @@ object RokidControlsController {
             hud = RokidHudView(activity).also { it.layoutParams = fullLayoutParams() }
         }
         if (rail == null) {
-            rail = RokidPlayerRailView(activity).also { it.layoutParams = railLayoutParams(activity) }
+            rail = RokidPlayerRailView(activity).also { it.layoutParams = fullLayoutParams() }
         }
     }
 
-    /** Ring under the HUD bands, rail on top: same order on every reattach. */
+    /** HUD bands stay above the player's black mask on every reattach. */
     private fun addOverlaysTo(contentRoot: ViewGroup) {
-        listOfNotNull(ring, hud, rail).forEach { view ->
+        listOfNotNull(ring, rail, hud).forEach { view ->
             val params = view.layoutParams ?: fullLayoutParams()
             (view.parent as? ViewGroup)?.removeView(view)
             contentRoot.addView(view, params)
@@ -252,17 +270,6 @@ object RokidControlsController {
         )
     }
 
-    private fun railLayoutParams(context: Context): FrameLayout.LayoutParams {
-        val params = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL,
-        )
-        params.bottomMargin =
-            ((RokidHudView.HINTS_DP + 8f) * context.resources.displayMetrics.density).toInt()
-        return params
-    }
-
     private fun bindObservers() {
         if (observersBound) {
             return
@@ -284,19 +291,43 @@ object RokidControlsController {
     }
 
     private fun currentSurface(): RokidSurface {
-        return if (PlayerType.current.isMaximizedOrFullscreen()) {
-            RokidSurface.PLAYER
-        } else {
-            RokidSurface.BROWSE
+        val type = PlayerType.current
+        return when {
+            type == PlayerType.WATCH_WHILE_FULLSCREEN -> RokidSurface.FULLSCREEN
+            type.isMaximizedOrFullscreen() -> RokidSurface.PLAYER
+            else -> RokidSurface.BROWSE
         }
     }
 
     private fun refresh() {
         val surface = currentSurface()
         state.syncSurface(surface)
+        if (surface != lastRefreshedSurface) {
+            lastRefreshedSurface = surface
+            restartIdleTimers(surface)
+        }
         refreshFeed(surface)
         refreshRail(surface)
     }
+
+    /**
+     * Any rail key keeps the rail up for [RAIL_IDLE_MS]; any fullscreen key
+     * shows the pill for [PILL_MS]. Entering either surface counts as a key.
+     */
+    private fun restartIdleTimers(surface: RokidSurface) {
+        mainHandler.removeCallbacks(hideRailAfterIdle)
+        mainHandler.removeCallbacks(endPill)
+        when (surface) {
+            RokidSurface.PLAYER -> mainHandler.postDelayed(hideRailAfterIdle, RAIL_IDLE_MS)
+            RokidSurface.FULLSCREEN -> {
+                pillUntil = SystemClock.uptimeMillis() + PILL_MS
+                mainHandler.postDelayed(endPill, PILL_MS)
+            }
+            RokidSurface.BROWSE -> pillUntil = 0L
+        }
+    }
+
+    private fun pillVisible(): Boolean = SystemClock.uptimeMillis() < pillUntil
 
     private fun refreshFeed(surface: RokidSurface) {
         val ringView = ring ?: return
@@ -312,10 +343,20 @@ object RokidControlsController {
             if (RokidRailLabels.hidePlayerRailForDescription(EngagementPanel.isDescription())) {
                 hudView.hideHud()
             } else {
-                hudView.show(header = false, tag = null, counter = null, hints = RokidHudText.hints(surface))
+                val playing = VideoState.current == VideoState.PLAYING
+                hudView.show(
+                    header = false,
+                    tag = null,
+                    counter = null,
+                    hints = RokidHudText.hints(surface, playing),
+                )
+                hudView.setFaded(
+                    if (surface == RokidSurface.FULLSCREEN) !pillVisible() else state.railHidden,
+                )
             }
             return
         }
+        hudView.setFaded(false)
         val container = findResultsContainer(activity)
         val item = container?.let { feedItemRoot(activity.currentFocus, it) }
         var counter: String? = null
@@ -335,7 +376,7 @@ object RokidControlsController {
 
     private fun refreshRail(surface: RokidSurface) {
         val view = rail ?: return
-        if (surface != RokidSurface.PLAYER) {
+        if (surface == RokidSurface.BROWSE) {
             playerRailArmed = false
             view.hideRail()
             return
@@ -371,14 +412,65 @@ object RokidControlsController {
                     "playCanActivate=$playCanActivate seekAvailable=$seekAvailable"
             }
         }
-        view.showAt(
+        val playing = videoState == VideoState.PLAYING
+        val time = RokidRailLabels.resolvePlaybackTime(
+            controllerTime,
+            RokidRailLabels.identityBoundCachedTime(playbackCache, currentVideoId),
+        )
+        if (surface == RokidSurface.FULLSCREEN) {
+            view.showFullscreen(pillVisible(), playing, time, length)
+            return
+        }
+        view.showRail(
             index = state.railIndex,
+            keysVisible = !state.railHidden,
+            playing = playing,
             playPauseLabel = RokidRailLabels.playPause(playCanActivate, videoState?.name),
             playPauseAvailable = playCanActivate,
-            seekBackLabel = RokidRailLabels.seek(backward = true, available = seekAvailable),
-            seekForwardLabel = RokidRailLabels.seek(backward = false, available = seekAvailable),
             seekAvailable = seekAvailable,
+            fullscreenLabel = "Fullscreen",
+            videoBox = activity?.let { videoBoxIn(it, view) },
+            metadataBottom = activity?.let { watchMetadataBottomIn(it, view) },
+            timeMs = time,
+            lengthMs = length,
         )
+    }
+
+    /** Keep YouTube's title row visible, cover actions and comments below it. */
+    private fun watchMetadataBottomIn(activity: Activity, overlay: View): Int? {
+        val id = resolveViewId(activity, "watch_list")
+        if (id == 0) return null
+        val list = activity.findViewById<ViewGroup>(id) ?: return null
+        if (!list.isShown) return null
+        val titleRow = list.getChildAt(0) ?: return null
+        val location = IntArray(2)
+        overlay.getLocationInWindow(location)
+        val overlayTop = location[1]
+        titleRow.getLocationInWindow(location)
+        return location[1] + titleRow.height - overlayTop
+    }
+
+    /** The watch player's rect in [overlay] coordinates, null while it is not on screen. */
+    private fun videoBoxIn(activity: Activity, overlay: View): RokidBox? {
+        for (name in RokidFeedScope.playerViewNames) {
+            val id = resolveViewId(activity, name)
+            if (id == 0) {
+                continue
+            }
+            val player = activity.findViewById<View>(id) ?: continue
+            if (!player.isShown || player.width == 0 || player.height == 0) {
+                continue
+            }
+            val location = IntArray(2)
+            overlay.getLocationInWindow(location)
+            val overlayLeft = location[0]
+            val overlayTop = location[1]
+            player.getLocationInWindow(location)
+            val left = location[0] - overlayLeft
+            val top = location[1] - overlayTop
+            return RokidBox(left, top, left + player.width, top + player.height)
+        }
+        return null
     }
 
     /**
@@ -441,7 +533,7 @@ object RokidControlsController {
     private fun execute(activity: Activity, dispatch: RokidDispatch): Boolean {
         return when (dispatch.command) {
             RokidCommand.IGNORE -> false
-            RokidCommand.CONSUME, RokidCommand.RAIL_MOVED -> true
+            RokidCommand.CONSUME, RokidCommand.RAIL_MOVED, RokidCommand.RAIL_REVEAL -> true
             RokidCommand.PASS_BACK -> false
             RokidCommand.FEED_PREVIOUS -> stepFeed(activity, next = false)
             RokidCommand.FEED_NEXT -> stepFeed(activity, next = true)

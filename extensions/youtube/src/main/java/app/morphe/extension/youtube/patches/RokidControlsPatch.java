@@ -9,16 +9,26 @@ package app.morphe.extension.youtube.patches;
 
 import android.app.Activity;
 import android.view.KeyEvent;
+import android.view.View;
 import android.view.ViewGroup;
 
 import app.morphe.extension.shared.Logger;
 import app.morphe.extension.youtube.rokid.RokidControlsController;
+import app.morphe.extension.youtube.rokid.RokidPlayPauseController;
 
 /**
  * Named Rokid controls patch gate. {@link #isPatchIncluded()} is rewritten true at patch time.
  */
 @SuppressWarnings("unused")
 public final class RokidControlsPatch {
+
+    public interface NativeControls {
+        void patch_initializeControls();
+    }
+
+    public static void setNativeControls(NativeControls controls, View root) {
+        RokidPlayPauseController.bind(controls, root);
+    }
 
     /**
      * Event currently inside {@link #handleKeyEvent}. Same instance through

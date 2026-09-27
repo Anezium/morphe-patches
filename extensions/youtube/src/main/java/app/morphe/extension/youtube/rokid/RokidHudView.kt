@@ -22,6 +22,7 @@ import android.view.View
  */
 class RokidHudView(context: Context) : View(context) {
     private var header = false
+    private var faded = false
     private var tag: String? = null
     private var counter: String? = null
     private var hints: List<RokidHint> = emptyList()
@@ -70,6 +71,20 @@ class RokidHudView(context: Context) : View(context) {
 
     fun hideHud() {
         visibility = GONE
+    }
+
+    /** Fades out with the player rail; comes back at once with the next key. */
+    fun setFaded(faded: Boolean) {
+        if (faded == this.faded) {
+            return
+        }
+        this.faded = faded
+        animate().cancel()
+        if (faded) {
+            animate().alpha(0f).setDuration(FADE_MS).start()
+        } else {
+            alpha = 1f
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -122,6 +137,7 @@ class RokidHudView(context: Context) : View(context) {
     companion object {
         const val HEADER_DP = 36f
         const val HINTS_DP = 36f
+        const val FADE_MS = 300L
         const val DIM = 0xFFA3A3A3.toInt()
         const val ACCENT = 0xFFFF0033.toInt()
     }

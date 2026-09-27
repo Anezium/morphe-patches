@@ -47,4 +47,13 @@ class RokidHudTextTest {
             RokidHudText.hints(RokidSurface.PLAYER),
         )
     }
+
+    @Test
+    fun fullscreenHintsFollowPlayback() {
+        assertEquals(
+            listOf(RokidHint("●", "pause"), RokidHint("⇄", "seek 10 s"), RokidHint("◂", "leave")),
+            RokidHudText.hints(RokidSurface.FULLSCREEN, playing = true),
+        )
+        assertEquals(RokidHint("●", "play"), RokidHudText.hints(RokidSurface.FULLSCREEN, playing = false)[0])
+    }
 }
