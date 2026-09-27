@@ -224,8 +224,29 @@ keyboard** enabled. Disabled mode must preserve manual keyboard use. Both modes,
 preference persistence, and actual phone-to-YouTube typing passed device checks.
 Nexus commits: `e0aaee0a`, `a94a2957`. The option was left off after verification.
 
-Delivery retains the previously reported visual deviations: the five rail keys
-use the mockup's 80 px rather than the contradictory 80 dp requirement; search
-keeps YouTube's native field/UI; destinations other than Home retain native
-content layouts. Evidence, command tails and slice commits are recorded in
+The five rail keys use the mockup's 80 px rather than the contradictory 80 dp
+requirement. Evidence, command tails and slice commits are recorded in
 `E:/Tools/Rokid/tmp/morphe-rokid-prototype/evidence/continuation-report.md`.
+
+# User-authorized continuation: visual refinements
+
+The user authorized completing the remaining search and feed presentation.
+Search now mirrors the real editor and suggestions in a black overlay with a
+phone-keyboard invitation. Its wording works with automatic opening enabled or
+disabled; no editor keys are intercepted or logged. Video cards in Home,
+Subscriptions, History, Watch later and search results share a full-width
+thumbnail, 3 dp ring, two-line 21 sp title and native metadata. Views and Litho
+components are read only. Empty rows and non-video headers are skipped when
+video cards are mounted. Counters retain the native adapter positions/counts.
+
+Switching to Home, Subscriptions or You from a nested native page first returns
+to the native tab level, preventing the previous playlist/search page from
+remaining above the selected tab. History -> Watch later -> Subscriptions ->
+Home -> exit and Search -> Home passed device verification.
+
+Non-video account/empty states retain native presentation, and suggestions
+retain native editor behavior. Grid thumbnails use their native resolution.
+The final test-only APK was installed at 2026-09-27 14:51:36; main YouTube stayed
+at 2026-08-10 17:22:51. The Nexus preference remains off and unchanged by this
+continuation. Detailed checks and screenshots are in
+`E:/Tools/Rokid/tmp/morphe-rokid-prototype/evidence/visual-polish/acceptance.md`.

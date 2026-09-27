@@ -20,7 +20,40 @@ import app.morphe.extension.youtube.shared.NavigationBar
 
 /** Native destinations remain inside the patched package, including URL fallbacks. */
 object RokidSectionNavigation {
-    fun open(activity: Activity, section: RokidSection): Boolean = when (section) {
+    private var requestGeneration = 0
+
+    fun open(activity: Activity, section: RokidSection): Boolean {
+        val generation = ++requestGeneration
+        if (section in listOf(RokidSection.HOME, RokidSection.SUBSCRIPTIONS, RokidSection.YOU) &&
+            NavigationBar.isBackButtonVisible()
+        ) {
+            returnToTabs(activity, section, generation, 0)
+            return true
+        }
+        return openDestination(activity, section)
+    }
+
+    /** A tab click alone leaves a search/playlist fragment covering the selected tab. */
+    @Suppress("DEPRECATION")
+    private fun returnToTabs(activity: Activity, section: RokidSection, generation: Int, depth: Int) {
+        if (generation != requestGeneration || activity.isFinishing || activity.isDestroyed) return
+        if (!NavigationBar.isBackButtonVisible()) {
+            openDestination(activity, section)
+            return
+        }
+        if (depth >= 8) {
+            Logger.printDebug { "Rokid section: native back stack did not reach the tabs" }
+            return
+        }
+        try {
+            activity.onBackPressed()
+            activity.window.decorView.postDelayed({ returnToTabs(activity, section, generation, depth + 1) }, 200L)
+        } catch (ex: Exception) {
+            Logger.printException({ "Rokid section: native Back failed" }, ex)
+        }
+    }
+
+    private fun openDestination(activity: Activity, section: RokidSection): Boolean = when (section) {
         RokidSection.HOME -> clickTab(activity, "home") || openUrl(activity, "https://www.youtube.com/")
         RokidSection.SUBSCRIPTIONS -> clickTab(activity, "subscriptions") ||
             openUrl(activity, "https://www.youtube.com/feed/subscriptions")

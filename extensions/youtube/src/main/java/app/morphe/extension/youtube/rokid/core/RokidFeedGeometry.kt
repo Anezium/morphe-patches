@@ -22,6 +22,11 @@ data class RokidBox(val left: Int, val top: Int, val right: Int, val bottom: Int
  * position the counter shows.
  */
 object RokidFeedGeometry {
+    /** Exclude avatars and Shorts while accepting both grid and list thumbnails. */
+    fun isVideoThumbnail(width: Int, height: Int): Boolean =
+        width >= 80 && height >= 45 &&
+            kotlin.math.abs(width * 9L - height * 16L) * 100 <= width * 9L * 8
+
     /**
      * Ring [outset] pixels outside the target, pulled back inside [bounds].
      * Feed cards are full width: without the clamp the side strokes fall off

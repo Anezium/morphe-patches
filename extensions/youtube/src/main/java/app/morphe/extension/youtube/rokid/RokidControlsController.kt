@@ -30,6 +30,7 @@ import app.morphe.extension.youtube.patches.OpenVideosFullscreenHookPatch
 import app.morphe.extension.youtube.patches.RokidControlsPatch
 import app.morphe.extension.youtube.patches.VideoInformation
 import app.morphe.extension.youtube.shared.EngagementPanel
+import app.morphe.extension.youtube.shared.NavigationBar
 import app.morphe.extension.youtube.shared.PlayerType
 import app.morphe.extension.youtube.shared.VideoState
 import java.lang.ref.WeakReference
@@ -47,6 +48,12 @@ object RokidControlsController {
     private val state = RokidControlsState()
     private val sectionsState = RokidSectionsState()
     private var sectionsView: RokidSectionsView? = null
+    private var feedCard: RokidFeedCardView? = null
+    private var searchView: RokidSearchView? = null
+    private val checkBrowse = Runnable {
+        if (activityRef.get()?.hasWindowFocus() == true) refresh()
+        else scheduleBrowseRefresh()
+    }
     private var currentSection = RokidSection.HOME
     private var consumeBackUp = false
     private var searchPending = false
@@ -123,6 +130,7 @@ object RokidControlsController {
         searchPending = false
         searchVisible = false
         mainHandler.removeCallbacks(checkSearch)
+        mainHandler.removeCallbacks(checkBrowse)
         RokidKeyMapper.resetDebounce()
         unbindObservers()
     }
@@ -305,6 +313,11 @@ object RokidControlsController {
             searchPending = false
         }
         exposeSearchChrome(activity, searchPending || searchVisible)
+        if (editor != null) {
+            searchView?.showSearch(editor, RokidSectionNavigation.find(activity, "results_recycler_view"))
+        } else {
+            searchView?.hideSearch()
+        }
         refresh()
         if (searchPending || searchVisible) mainHandler.postDelayed(checkSearch, 250L)
     }
@@ -318,6 +331,12 @@ object RokidControlsController {
     }
 
     private fun ensureOverlays(activity: Activity) {
+        if (feedCard == null) {
+            feedCard = RokidFeedCardView(activity).also { it.layoutParams = fullLayoutParams() }
+        }
+        if (searchView == null) {
+            searchView = RokidSearchView(activity).also { it.layoutParams = fullLayoutParams() }
+        }
         if (sectionsView == null) {
             sectionsView = RokidSectionsView(activity).also { it.layoutParams = fullLayoutParams() }
         }
@@ -334,7 +353,7 @@ object RokidControlsController {
 
     /** HUD bands stay above the player's black mask on every reattach. */
     private fun addOverlaysTo(contentRoot: ViewGroup) {
-        listOfNotNull(ring, rail, sectionsView, hud).forEach { view ->
+        listOfNotNull(ring, feedCard, rail, sectionsView, searchView, hud).forEach { view ->
             val params = view.layoutParams ?: fullLayoutParams()
             (view.parent as? ViewGroup)?.removeView(view)
             contentRoot.addView(view, params)
@@ -342,7 +361,11 @@ object RokidControlsController {
     }
 
     private fun dropOverlays() {
-        val views = listOfNotNull(ring, hud, rail, sectionsView)
+        val views = listOfNotNull(ring, hud, rail, sectionsView, feedCard, searchView)
+        feedCard?.hideCard()
+        feedCard = null
+        searchView?.hideSearch()
+        searchView = null
         sectionsView = null
         ring?.hide()
         ring = null
@@ -416,6 +439,14 @@ object RokidControlsController {
         }
         refreshFeed(surface)
         refreshRail(surface)
+        scheduleBrowseRefresh()
+    }
+
+    private fun scheduleBrowseRefresh() {
+        mainHandler.removeCallbacks(checkBrowse)
+        if (activityRef.get() != null && currentSurface() == RokidSurface.BROWSE &&
+            !searchPending && !searchVisible
+        ) mainHandler.postDelayed(checkBrowse, 300L)
     }
 
     /**
@@ -442,22 +473,28 @@ object RokidControlsController {
         val hudView = hud ?: return
         val activity = activityRef.get()
         if (activity == null) {
+            feedCard?.hideCard()
             ringView.hide()
             hudView.hideHud()
             return
         }
         if (searchPending || searchVisible) {
+            feedCard?.hideCard()
             ringView.hide()
-            hudView.hideHud()
+            hudView.setFaded(false)
+            hudView.show(true, "Search", null, listOf(RokidHint("◂", "back")))
             return
         }
+        searchView?.hideSearch()
         if (surface == RokidSurface.SECTIONS) {
+            feedCard?.hideCard()
             ringView.hide()
             hudView.setFaded(false)
             hudView.show(true, "Sections", "${sectionsState.index + 1} / ${RokidSection.entries.size}", RokidHudText.hints(surface))
             return
         }
         if (surface != RokidSurface.BROWSE) {
+            feedCard?.hideCard()
             ringView.hide()
             if (RokidRailLabels.hidePlayerRailForDescription(EngagementPanel.isDescription())) {
                 hudView.hideHud()
@@ -480,9 +517,17 @@ object RokidControlsController {
         val item = container?.let { feedItemRoot(activity.currentFocus, it) }
         var counter: String? = null
         if (container != null && item != null) {
-            ringView.follow(ringTargetFor(item), item, container)
+            val items = attachedFeedItems(container)
+            val next = items.getOrNull(items.indexOf(item) + 1)
+            if (feedCard?.showCard(item, next) == true) {
+                ringView.hide()
+            } else {
+                feedCard?.hideCard()
+                ringView.follow(ringTargetFor(item), item, container)
+            }
             counter = feedCounter(container, item)
         } else {
+            feedCard?.hideCard()
             ringView.hide()
         }
         hudView.show(
@@ -808,12 +853,17 @@ object RokidControlsController {
         val items = ArrayList<View>(container.childCount)
         for (i in 0 until container.childCount) {
             val child = container.getChildAt(i) ?: continue
-            if (child.isShown && child.isAttachedToWindow && !isChromeView(child)) {
+            if (child.isShown && child.isAttachedToWindow && child.width > 0 && child.height > 0 &&
+                !isChromeView(child) && preferredActivation(child).isClickable
+            ) {
                 items.add(child)
             }
         }
-        items.sortBy { it.top }
-        return items
+        items.sortWith(compareBy<View> { it.top }.thenBy { it.left })
+        // History also puts its search field and filter controls inside results.
+        // When videos are mounted, only video cards participate in feed stepping.
+        val videos = items.filter { RokidFeedCardContent.thumbnail(it) != null }
+        return videos.ifEmpty { items }
     }
 
     private fun feedItemRoot(view: View?, container: ViewGroup): View? {
@@ -949,6 +999,13 @@ object RokidControlsController {
 
     /** Label of the selected tab, read from the hidden tab bar. */
     private fun selectedSectionLabel(activity: Activity): String? {
+        val query = RokidSectionNavigation.find(activity, "search_query")
+        if (query != null && query !is EditText && query.isAttachedToWindow && query.visibility == View.VISIBLE) {
+            return RokidSection.SEARCH.label
+        }
+        if (NavigationBar.isBackButtonVisible() &&
+            (currentSection == RokidSection.HISTORY || currentSection == RokidSection.WATCH_LATER)
+        ) return currentSection.label
         val id = resolveViewId(activity, "pivot_bar")
         if (id == 0) {
             return null

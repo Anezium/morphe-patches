@@ -18,6 +18,17 @@ class RokidFeedGeometryTest {
     private val screen = RokidBox(0, 0, 480, 640)
 
     @Test
+    fun videoThumbnailAcceptsGridAndListButRejectsAvatarsAndShorts() {
+        assertTrue(RokidFeedGeometry.isVideoThumbnail(204, 115))
+        assertTrue(RokidFeedGeometry.isVideoThumbnail(480, 270))
+        assertTrue(RokidFeedGeometry.isVideoThumbnail(160, 90))
+        assertFalse(RokidFeedGeometry.isVideoThumbnail(54, 54))
+        assertFalse(RokidFeedGeometry.isVideoThumbnail(180, 320))
+        assertFalse(RokidFeedGeometry.isVideoThumbnail(0, 0))
+        assertFalse(RokidFeedGeometry.isVideoThumbnail(204, 247))
+    }
+
+    @Test
     fun ringSitsOutsideACardThatFitsTheScreen() {
         val ring = RokidFeedGeometry.ringBox(RokidBox(24, 100, 456, 343), outset = 4, stroke = 4, bounds = screen)
         assertEquals(RokidBox(20, 96, 460, 347), ring)
