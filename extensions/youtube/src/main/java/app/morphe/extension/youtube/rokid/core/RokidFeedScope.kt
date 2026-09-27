@@ -39,6 +39,10 @@ object RokidFeedScope {
         "pivot_bar",
         "pivot_bar_thumbnail",
         "controls_layout",
+        // Native control scrims are siblings of the buttons and survive hiding controls_layout.
+        "scrim_overlay",
+        "top_gradient_scrim_overlay",
+        "bottom_gradient_scrim_overlay",
     )
 
     fun isResultsContainer(entryName: String): Boolean {
