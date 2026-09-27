@@ -18,6 +18,12 @@ public final class EngagementPanel {
     private static final List<String> videoDescriptionPanelName = List.of("video-description-ep-identifier");
 
     /**
+     * True while the video description engagement panel is open.
+     * Presence of {@code engagement_panel_wrapper} in the tree is not this signal.
+     */
+    public static final Event<Boolean> onDescriptionChange = new Event<>();
+
+    /**
      * Injection point.
      */
     public static void close(@Nullable String panelId) {
@@ -35,6 +41,7 @@ public final class EngagementPanel {
                 }
             }
         }
+        notifyDescriptionChange();
     }
 
     /**
@@ -45,10 +52,15 @@ public final class EngagementPanel {
             engagementPanelIds.addLast(panelId);
             Logger.printDebug(() -> "EngagementPanel open: " + panelId);
         }
+        notifyDescriptionChange();
     }
 
     public static boolean isDescription() {
         return checkIdsInQueue(videoDescriptionPanelName);
+    }
+
+    private static void notifyDescriptionChange() {
+        onDescriptionChange.invoke(isDescription());
     }
 
     public static boolean checkIdsInQueue(List<String> ids) {

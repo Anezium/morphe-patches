@@ -111,6 +111,25 @@ internal object YouTubeMainActivityOnBackPressedFingerprint : Fingerprint(
     )
 )
 
+/**
+ * YouTube 21.04.223 MainActivity (no subclasses; superclass Lplu;).
+ * dispatchKeyEvent can return true on ACTION_DOWN without invoke-super.
+ * ACTION_UP falls through to super, which is why a SwipeControlsHostActivity
+ * override only observed key-up.
+ */
+internal object YouTubeMainActivityDispatchKeyEventFingerprint : Fingerprint(
+    definingClass = YOUTUBE_MAIN_ACTIVITY_CLASS_TYPE,
+    name = "dispatchKeyEvent",
+    returnType = "Z",
+    parameters = listOf("Landroid/view/KeyEvent;"),
+    filters = listOf(
+        methodCall(
+            opcode = Opcode.INVOKE_SUPER,
+            name = "dispatchKeyEvent"
+        ),
+    )
+)
+
 internal object YouTubeActivityOnCreateFingerprint : Fingerprint(
     definingClass = YOUTUBE_MAIN_ACTIVITY_CLASS_TYPE,
     name = "onCreate",

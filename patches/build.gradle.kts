@@ -26,6 +26,17 @@ dependencies {
 
     // Android API stubs defined here.
     compileOnly(project(":patches:stub"))
+
+    testImplementation("junit:junit:4.13.2")
+}
+
+sourceSets {
+    named("test") {
+        // Production mapper/state are Android-free. Tests compile those files, not a copy.
+        kotlin.srcDir(
+            "../extensions/youtube/src/main/java/app/morphe/extension/youtube/rokid/core"
+        )
+    }
 }
 
 tasks {

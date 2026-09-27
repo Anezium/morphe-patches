@@ -44,15 +44,34 @@ public class OpenVideosFullscreenHookPatch {
         openNextVideoFullscreen = forceFullScreen;
     }
 
-    public static void exitFullscreenMode() {
+    public static boolean exitFullscreenMode() {
         FullscreenInterface screenInterface = fullscreenInterfaceRef.get();
         if (screenInterface == null) {
             Logger.printException(() -> "Cannot exit fullscreen mode (interface is null)");
-            return;
+            return false;
         }
 
         Logger.printDebug(() -> "Exiting fullscreen mode");
         screenInterface.patch_exitFullscreen();
+        return true;
+    }
+
+    /**
+     * Enters fullscreen if the player hook is attached.
+     *
+     * @return True if the enter call was dispatched.
+     */
+    public static boolean enterFullscreenMode() {
+        FullscreenInterface screenInterface = fullscreenInterfaceRef.get();
+        if (screenInterface == null) {
+            Logger.printException(() -> "Cannot enter fullscreen mode (interface is null)");
+            return false;
+        }
+
+        Logger.printDebug(() -> "Entering fullscreen mode");
+        Utils.verifyOnMainThread();
+        screenInterface.patch_enterFullscreen();
+        return true;
     }
 
     /**

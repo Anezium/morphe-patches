@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import app.morphe.extension.shared.Logger.printDebug
 import app.morphe.extension.shared.Logger.printException
+import app.morphe.extension.youtube.patches.RokidControlsPatch
 import app.morphe.extension.youtube.patches.VersionCheckPatch
 import app.morphe.extension.youtube.settings.Settings
 import app.morphe.extension.youtube.shared.PlayerType
@@ -87,8 +88,9 @@ class SwipeControlsHostActivity : Activity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        RokidControlsPatch.onDestroy(this)
         PlayerType.onChange -= this::onPlayerTypeChanged
+        super.onDestroy()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
@@ -102,6 +104,9 @@ class SwipeControlsHostActivity : Activity() {
 
     override fun dispatchKeyEvent(ev: KeyEvent?): Boolean {
         ensureInitialized()
+        // Rokid keys are hooked at MainActivity.dispatchKeyEvent so ACTION_DOWN
+        // cannot be swallowed before super. Do not call Rokid here: that would
+        // double-process ACTION_UP after the bytecode hook falls through.
         return if ((ev != null) && keys.onKeyEvent(ev)) {
             true
         } else {
@@ -149,6 +154,7 @@ class SwipeControlsHostActivity : Activity() {
             overlay = it
             contentRoot.addView(it)
         }
+        RokidControlsPatch.attach(this, contentRoot)
 
         // create swipe zone controller
         zones = SwipeZonesController(this) {
@@ -189,6 +195,7 @@ class SwipeControlsHostActivity : Activity() {
         printDebug { "attaching swipe controls overlay" }
         contentRoot.removeView(overlay)
         contentRoot.addView(overlay)
+        RokidControlsPatch.reattach(contentRoot)
     }
 
     // Flag that indicates whether the brightness has been saved and restored default brightness
