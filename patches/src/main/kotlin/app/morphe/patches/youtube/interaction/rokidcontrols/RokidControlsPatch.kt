@@ -98,9 +98,10 @@ private fun MutableClass.addPatchMethod(
 @Suppress("unused")
 val rokidControlsPatch = bytecodePatch(
     name = "Rokid controls",
-    description = "Adds one-axis Rokid glasses controls: shared directional debounce, " +
-        "an outline player rail (play/pause, seek, fullscreen, back), and best-effort feed focus.",
-    default = false,
+    description = "Turns YouTube into a Rokid glasses app driven by the touchpad or an R08 ring: " +
+        "one-card feed, sections and search, player rail, and speed, quality and caption options.",
+    // This fork exists for the glasses, so the patch is part of the default selection.
+    default = true,
 ) {
     dependsOn(
         swipeControlsPatch,

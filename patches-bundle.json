@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-27T23:30:00",
-  "description": "## 1.39.1-rokid.1 (2026-09-27)\n\nMorphe Patches 1.39.1 with the **Rokid controls** patch for YouTube 21.04.223 on Rokid glasses: player rail, options panel (speed, quality, captions, caption language), sections and search, R08 ring navigation, native scrims hidden, playback reminders removed, automatic captions off by default.",
-  "download_url": "https://github.com/Anezium/morphe-patches/releases/download/v1.39.1-rokid.1/patches-1.39.1-rokid.1.mpp",
+  "created_at": "2026-09-28T00:30:00",
+  "description": "## 1.39.1-rokid.2 (2026-09-28)\n\n**Rokid controls** is now part of the default selection, so a plain patch of YouTube 21.04.223 from this source gives the glasses app. The README explains the Rokid patches, how to change the selection, and how to modify and release them.",
+  "download_url": "https://github.com/Anezium/morphe-patches/releases/download/v1.39.1-rokid.2/patches-1.39.1-rokid.2.mpp",
   "signature_download_url": "",
-  "version": "1.39.1-rokid.1"
+  "version": "1.39.1-rokid.2"
 }

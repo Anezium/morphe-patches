@@ -1,6 +1,6 @@
 {
   "NOTE": "Do NOT manually edit this file. This file is automatically updated when semantic release (release.yml) runs. Manually editing this file can break your releases and break third party tools that use this file.",
-  "version": "1.39.1-rokid.1",
+  "version": "1.39.1-rokid.2",
   "patches": [
     {
       "name": "Add to queue",
@@ -7346,8 +7346,8 @@
     },
     {
       "name": "Rokid controls",
-      "description": "Adds one-axis Rokid glasses controls: shared directional debounce, an outline player rail (play/pause, seek, fullscreen, back), and best-effort feed focus.",
-      "default": false,
+      "description": "Turns YouTube into a Rokid glasses app driven by the touchpad or an R08 ring: one-card feed, sections and search, player rail, and speed, quality and caption options.",
+      "default": true,
       "dependencies": [
         "BytecodePatch",
         "BytecodePatch",

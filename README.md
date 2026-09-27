@@ -32,6 +32,121 @@ Morphe Patches are based off the prior work of [ReVanced](https://github.com/ReV
 All modifications made by Morphe, along with their dates, can be found in the Git history.
 
 &nbsp;
+
+## 🕶️ Rokid glasses fork
+
+This fork adds the **Rokid controls** patch, which turns YouTube into an app you drive from
+Rokid AR glasses: the temple touchpad, or an R08 ring through Rokid Nexus. It lives at
+[Anezium/morphe-patches](https://github.com/Anezium/morphe-patches), branch `rokid`, and is not
+an official Morphe release.
+
+The patch targets **YouTube 21.04.223** only. Its bytecode hooks are pinned to that build, and
+patching any other version leaves it out.
+
+### Install
+
+The easy way is **Rokid Nexus → Glasses apps → Set up YouTube** on the phone, which walks
+through every step below.
+
+1. Add this fork as a patch source in Morphe Manager. Open
+   <https://morphe.software/add-source?github=Anezium/morphe-patches&name=Rokid%20glasses>
+   on the phone, or tap **Sources → + → Remote** and paste `github.com/Anezium/morphe-patches`.
+   Morphe then updates the source by itself when a new release comes out.
+2. Download the **YouTube 21.04.223** APK: the APK variant, not a bundle.
+3. Patch it from the **Rokid glasses** source. The default selection already includes
+   **Rokid controls**, **GmsCore support**, **Hide ads** and **SponsorBlock**.
+4. Install the patched YouTube and **Morphe MicroG-RE** on the glasses, then sign in from MicroG.
+
+If you keep the official Morphe source too, pick **Rokid glasses** when Morphe asks which
+source to use. Enabling both sources on one app can make their patches conflict.
+
+### Changing the patch selection
+
+Turn on **Expert mode** in Morphe Manager. The patch selection screen then lists every patch
+of the source, so you can add or drop any of them before patching, and Morphe keeps that
+selection for the next update. Keep **GmsCore support**: without it, the Google sign-in does
+not work. Rokid controls does not depend on Hide ads or SponsorBlock.
+
+### What the patch does
+
+| Screen | Slide (touchpad or ring) | Tap (ring: 1 tap) | Back (ring: 2 taps) |
+| --- | --- | --- | --- |
+| Feed, one card at a time | next / previous video | open | sections |
+| Sections: Home, Subscriptions, Search, History, Watch later, You | choose | open | close, or exit YouTube |
+| Player rail: play/pause, −10 s, +10 s, fullscreen, options, close | move along the rail | press | back to the feed |
+| Fullscreen | seek 10 s | play / pause | leave fullscreen |
+| Options: speed, quality, captions on/off, caption language | choose | set | close |
+
+Around the controls, the patch also:
+
+- hides YouTube's own bars, buttons and control scrims. Pure black is transparent on the
+  glasses, so only the video and the glasses UI light up;
+- keeps the quality picked in **Options** for every following video;
+- removes the bedtime and take-a-break reminders, which pause playback behind a panel the
+  glasses cannot operate;
+- turns automatic captions off once, on the first launch. Caption choices made after that are
+  kept;
+- leaves search typing to the phone, through the Rokid Nexus keyboard.
+
+### Modifying it
+
+Where the code lives:
+
+| Path | What |
+| --- | --- |
+| `patches/src/main/kotlin/app/morphe/patches/youtube/interaction/rokidcontrols/` | The bytecode patch: hooks, fingerprints pinned to 21.04.223, reminder removal |
+| `extensions/youtube/src/main/java/app/morphe/extension/youtube/patches/RokidControlsPatch.java` | Entry points the hooks call |
+| `extensions/youtube/src/main/java/app/morphe/extension/youtube/rokid/` | The glasses UI: controller, rail, feed card, sections, options, search, ring |
+| `extensions/youtube/src/main/java/app/morphe/extension/youtube/rokid/core/` | Android-free state and rules, covered by unit tests |
+| `patches/src/test/kotlin/app/morphe/patches/youtube/interaction/rokidcontrols/` | Those unit tests |
+
+Common changes:
+
+- **A key should do something else:** `core/RokidKeyMapper.kt` for the touchpad and
+  `core/RokidRingInput.kt` for the ring. The hints at the bottom of the screen come from
+  `core/RokidHudText.kt`.
+- **A new row in Options:** add it to `RokidOption` and `RokidOptionsPage` in
+  `core/RokidOptionsState.kt`, then show and apply it in `optionRows()` and `selectOption()`
+  of `RokidControlsController.kt`.
+- **A YouTube view shows through, or the glasses UI misses one:** the names of the views that
+  are hidden or looked up are listed in `core/RokidFeedScope.kt`.
+- **Another YouTube version:** update `ROKID_YOUTUBE_COMPATIBILITY` and every fingerprint in
+  `rokidcontrols/`, including the obfuscated class names in `RokidReminders.kt`, then test the
+  whole flow on the glasses again.
+
+Keep what does not need Android in `core/` and test it there. Code that touches YouTube's views
+can only be checked on the glasses.
+
+### Building and testing
+
+Java 17 is required. The Morphe Gradle plugin comes from GitHub Packages, so export a GitHub
+token first, or Gradle stops with `Failed to apply plugin 'app.morphe.patches'`:
+
+```sh
+export GITHUB_ACTOR=<your GitHub user>
+export GITHUB_TOKEN=$(gh auth token)
+./gradlew :patches:test            # unit tests
+./gradlew :patches:buildAndroid    # patches/build/libs/patches-<version>.mpp
+```
+
+To try a build, add the `.mpp` in Morphe Manager (**Sources → + → Local**) and patch
+YouTube 21.04.223 with it, or use the Morphe desktop CLI. Install the result on the glasses
+with `adb install -r` and follow it with `adb logcat -s RokidControls`.
+
+### Releasing
+
+1. Bump `version` in `gradle.properties`, for example to `1.39.1-rokid.2`.
+2. Run `./gradlew generatePatchesList`. It builds the `.mpp` and updates `patches-list.json`.
+3. Update `patches-bundle.json`: `version`, `created_at`, `description`, and a `download_url` of
+   `https://github.com/Anezium/morphe-patches/releases/download/v<version>/patches-<version>.mpp`.
+4. Commit, tag `v<version>`, push the branch and the tag, then create the GitHub release with
+   `patches/build/libs/patches-<version>.mpp` attached.
+
+Morphe Manager reads `patches-bundle.json` from the default branch, so installs pick up the
+release by themselves. GitHub Actions are off on this fork: the upstream release workflow needs
+secrets the fork does not have.
+
+&nbsp;
 ## 🩹 Patches list
 
 <!-- PATCHES_START -->
