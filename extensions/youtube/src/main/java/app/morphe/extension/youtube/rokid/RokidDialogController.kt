@@ -45,7 +45,6 @@ object RokidDialogController {
             override fun onViewAttachedToWindow(view: View) {
                 dialogs.removeAll { it.get()?.isShowing != true }
                 dialogs.add(WeakReference(dialog))
-                dialog.setCancelable(true)
                 dialog.findViewById<Button>(android.R.id.button1)?.apply {
                     isFocusableInTouchMode = true
                     requestFocus()

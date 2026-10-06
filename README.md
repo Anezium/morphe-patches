@@ -89,8 +89,7 @@ Around the controls, the patch also:
 - leaves search typing to the phone, through the Rokid Nexus keyboard.
 
 Morphe dialogs keep their own input while open. The restart prompt focuses its restart
-button for touchpad/ring selection, and Back dismisses it. Other dialog windows also
-keep Rokid keys out of the feed and player.
+button for touchpad/ring selection. Back follows each dialog's existing cancelable setting.
 
 ### Modifying it
 
