@@ -118,6 +118,7 @@ val rokidControlsPatch = bytecodePatch(
 
     execute {
         stripRokidReminders()
+        hookRokidDialogs(mutableClassDefBy("Lapp/morphe/extension/shared/ui/CustomDialog;"))
         setExtensionIsPatchIncluded(EXTENSION_CLASS)
         videoTimeHook(EXTENSION_CLASS, "onVideoTime")
         onCreateHook(EXTENSION_CLASS, "onPlayerInitialized")

@@ -61,6 +61,7 @@ object RokidRingController {
 
     private val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
         if (hasFocus) claim()
+        else activityRef.get()?.let { if (RokidDialogController.current(it) == null) release() }
     }
 
     private val lifecycle = object : Application.ActivityLifecycleCallbacks {

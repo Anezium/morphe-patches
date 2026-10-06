@@ -38,7 +38,12 @@ object RokidKeyBypass {
         descriptionOpen: Boolean,
         editableField: Boolean,
         foreignWindow: Boolean,
+        windowFocused: Boolean = true,
     ): Reason {
+        // Activity.currentFocus can still point into the feed while a dialog owns input.
+        if (!windowFocused) {
+            return Reason.DIALOG
+        }
         if (descriptionOpen) {
             return Reason.DESCRIPTION
         }

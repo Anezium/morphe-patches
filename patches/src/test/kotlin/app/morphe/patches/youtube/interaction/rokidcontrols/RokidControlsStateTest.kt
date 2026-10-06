@@ -139,6 +139,18 @@ class RokidControlsStateTest {
     }
 
     @Test
+    fun dialogWindowWinsOverStaleActivityFocusAndDescription() {
+        for (editor in listOf(false, true)) {
+            for (description in listOf(false, true)) {
+                assertEquals(RokidKeyBypass.Reason.DIALOG,
+                    RokidKeyBypass.classify(description, editor, foreignWindow = false, windowFocused = false))
+            }
+        }
+        assertEquals(RokidKeyBypass.Reason.NONE,
+            RokidKeyBypass.classify(false, false, foreignWindow = false, windowFocused = true))
+    }
+
+    @Test
     fun selectableDisplayTextDoesNotBypassKeys() {
         assertFalse(RokidKeyBypass.isEditableInputType(0))
         assertTrue(RokidKeyBypass.isEditableInputType(1))
