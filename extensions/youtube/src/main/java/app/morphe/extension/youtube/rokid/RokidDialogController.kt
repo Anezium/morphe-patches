@@ -18,10 +18,9 @@ import android.view.Window
 import android.widget.Button
 import android.widget.LinearLayout
 import app.morphe.extension.youtube.patches.RokidControlsPatch
-import java.lang.ref.WeakReference
 
 object RokidDialogController {
-    private val dialogs = mutableListOf<WeakReference<Dialog>>()
+    private val dialogs = RokidDialogState<Dialog>()
 
     @JvmStatic
     fun markPositiveButton(button: Button) {
@@ -43,8 +42,7 @@ object RokidDialogController {
         }
         window.decorView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(view: View) {
-                dialogs.removeAll { it.get()?.isShowing != true }
-                dialogs.add(WeakReference(dialog))
+                dialogs.shown(dialog)
                 dialog.findViewById<Button>(android.R.id.button1)?.apply {
                     isFocusableInTouchMode = true
                     requestFocus()
@@ -52,13 +50,13 @@ object RokidDialogController {
             }
 
             override fun onViewDetachedFromWindow(view: View) {
-                dialogs.removeAll { it.get() == null || it.get() === dialog }
+                dialogs.dismissed(dialog)
             }
         })
     }
 
-    fun current(activity: Activity): Dialog? = dialogs.asReversed().firstNotNullOfOrNull {
-        it.get()?.takeIf { dialog -> dialog.isShowing && findActivity(dialog.context) === activity }
+    fun current(activity: Activity): Dialog? = dialogs.current {
+        it.isShowing && findActivity(it.context) === activity
     }
 
     private fun findActivity(context: Context): Activity? {

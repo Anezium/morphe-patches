@@ -235,13 +235,8 @@ object RokidControlsController {
             if (!RokidRingController.handleKeyEvent(activity, event)) dialog.dispatchKeyEvent(event)
             return true
         }
-        val bypass = classifyBypass(activity)
-        if (bypass == RokidKeyBypass.Reason.DIALOG) {
-            consumeMatchingKeyUp = false
-            consumeBackUp = false
-            return false
-        }
         if (RokidRingController.handleKeyEvent(activity, event)) return true
+        val bypass = classifyBypass(activity)
         val surface = currentSurface()
         if (bypass != RokidKeyBypass.Reason.NONE) {
             consumeMatchingKeyUp = false
@@ -739,7 +734,7 @@ object RokidControlsController {
         val editableField = focusShown && isEditableField(focus)
         val decor = activity.window?.decorView
         val foreignWindow = focusShown && focus != null && decor != null && focus.rootView !== decor
-        return RokidKeyBypass.classify(descriptionOpen, editableField, foreignWindow, activity.hasWindowFocus())
+        return RokidKeyBypass.classify(descriptionOpen, editableField, foreignWindow)
     }
 
     private fun isEditableField(focus: View?): Boolean {
