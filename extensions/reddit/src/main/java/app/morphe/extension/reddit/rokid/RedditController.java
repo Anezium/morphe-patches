@@ -159,6 +159,8 @@ public final class RedditController {
         else if (screen == Screen.MENU) menu(hud.selectedId());
     }
 
+    public boolean isEditing() { return hud.isEditing(); }
+
     public boolean handle(KeyEvent event) {
         if (closed) return false;
         if (hud.isEditing()) {

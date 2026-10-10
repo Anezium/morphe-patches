@@ -27,6 +27,8 @@ public final class NativeScreen {
         surface.open(title, activity::onBackPressed);
     }
 
+    public boolean isEditing() { return hud.isEditing(); }
+
     public boolean handle(KeyEvent event) {
         if (hud.isEditing()) {
             if (event.getKeyCode() == KeyEvent.KEYCODE_BACK) {

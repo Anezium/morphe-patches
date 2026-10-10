@@ -41,6 +41,7 @@ public final class RokidRedditPatch {
             @Override public void onActivityDestroyed(Activity activity) { onDestroy(activity); }
             @Override public void onActivityStarted(Activity activity) {}
             @Override public void onActivityPaused(Activity activity) {
+                RokidRingController.pause(activity);
                 RedditController controller = CONTROLLERS.get(activity);
                 if (controller != null) controller.pauseMedia();
             }
@@ -77,16 +78,19 @@ public final class RokidRedditPatch {
             // An incompatible native ABI cannot expose a working-looking Send button.
             NATIVE_SCREENS.put(activity, new NativeScreen(activity, root));
         }
+        RokidRingController.attached(activity);
     }
 
     public static void onResume(Activity activity) {
         if (!isPatchIncluded()) return;
+        RokidRingController.resume(activity);
         RedditController controller = CONTROLLERS.get(activity);
         if (controller != null) controller.onResume();
         activity.getWindow().getDecorView().post(() -> attach(activity));
     }
 
     public static void onDestroy(Activity activity) {
+        RokidRingController.destroy(activity);
         RedditController controller = CONTROLLERS.remove(activity);
         if (controller != null) controller.close();
         NativeScreen nativeScreen = NATIVE_SCREENS.remove(activity);
@@ -95,6 +99,22 @@ public final class RokidRedditPatch {
 
     public static boolean handleKeyEvent(Activity activity, KeyEvent event) {
         if (!isPatchIncluded()) return false;
+        if (RokidRingController.handle(activity, event)) return true;
+        return dispatchControllerKey(activity, event);
+    }
+
+    static boolean hasController(Activity activity) {
+        return CONTROLLERS.containsKey(activity) || NATIVE_SCREENS.containsKey(activity);
+    }
+
+    static boolean isEditing(Activity activity) {
+        RedditController controller = CONTROLLERS.get(activity);
+        if (controller != null) return controller.isEditing();
+        NativeScreen screen = NATIVE_SCREENS.get(activity);
+        return screen != null && screen.isEditing();
+    }
+
+    static boolean dispatchControllerKey(Activity activity, KeyEvent event) {
         RedditController controller = CONTROLLERS.get(activity);
         if (controller != null) return controller.handle(event);
         NativeScreen nativeScreen = NATIVE_SCREENS.get(activity);
