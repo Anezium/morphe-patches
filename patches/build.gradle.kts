@@ -36,10 +36,18 @@ sourceSets {
         kotlin.srcDir(
             "../extensions/youtube/src/main/java/app/morphe/extension/youtube/rokid/core"
         )
+        java.srcDir(
+            "../extensions/reddit/src/main/java/app/morphe/extension/reddit/rokid/core"
+        )
     }
 }
 
 tasks {
+    named<JavaCompile>("compileTestJava") {
+        // The patcher runs on Java 11; compile the shared reply core to that API.
+        options.release.set(11)
+    }
+
     register<JavaExec>("checkStringResources") {
         description = "Checks resource strings for invalid formatting"
 
